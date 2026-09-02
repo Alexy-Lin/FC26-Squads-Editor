@@ -1,0 +1,8 @@
+# 国际声望映射 (International Reputation Mapping)
+# 格式: ID=等级名称
+
+1=非国际
+2=低
+3=中等
+4=高
+5=超级巨星

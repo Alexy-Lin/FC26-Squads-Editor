@@ -1,0 +1,50 @@
+nationid,display_name
+# CONMEBOL,
+52,Argentina
+56,Colombia
+83,Mexico
+54,Brazil
+55,Chile
+57,Ecuador
+60,Uruguay
+# UEFA,
+7,Belgium
+8,Bosnia & Herz.
+9,Bulgaria
+10,Croatia
+12,Czech Republic
+13,Denmark
+14,England
+17,Finland
+18,France
+20,Georgia
+21,Germany
+25,Ireland
+27,Italy
+34,Netherlands
+35,Northern Ireland
+36,Norway
+38,Portugal
+39,Romania
+40,Russia
+42,Scotland
+45,Spain
+46,Sweden
+49,Ukraine
+50,Wales
+51,Serbia
+# CAF,
+103,Cameroon
+108,Ivory Coast
+117,Ghana
+129,Morocco
+133,Nigeria
+# AFC,
+163,Japan
+167,South Korea
+# CONCACAF,
+95,United States
+3,Armenia
+44,Slovenia
+37,Poland
+155,China

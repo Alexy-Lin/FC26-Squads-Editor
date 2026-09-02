@@ -1,0 +1,15 @@
+# 位置映射 (Position Mapping)
+# 格式: ID=位置名称
+
+0=GK
+3=RB
+5=CB
+7=LB
+10=CDM
+12=RM
+14=CM
+16=LM
+18=CAM
+23=RW
+25=ST
+27=LW
