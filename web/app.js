@@ -57,6 +57,9 @@ function debounce(key, fn, delay = 220) {
 function switchView(viewName) {
   $$(".tab").forEach(tab => tab.classList.toggle("active", tab.dataset.view === viewName));
   $$(".view").forEach(view => view.classList.toggle("active", view.id === `${viewName}View`));
+  if (viewName === "national" && nationalDraft.team && !nationalDraft.dirty) {
+    loadNational(nationalDraft.team.teamid);
+  }
 }
 
 async function refreshState() {
@@ -76,6 +79,12 @@ function fillMeta() {
   const position = $("#positionFilter");
   app.meta.positions.forEach(item => position.add(new Option(item.label, item.value)));
   fillTransferTeams();
+  const national = $("#nationalTeam");
+  national.replaceChildren(new Option("请选择国家队", ""));
+  (app.meta.national_teams || []).forEach(team => national.add(new Option(team.label, team.teamid)));
+  const nationalPosition = $("#nationalPosition");
+  nationalPosition.replaceChildren(new Option("全部位置", ""));
+  app.meta.positions.forEach(item => nationalPosition.add(new Option(item.label, item.label)));
 }
 
 function fillTransferTeams() {
@@ -969,6 +978,8 @@ async function applyNumbers(teamId, root = $("#teamDetail")) {
 }
 
 async function saveChanges() {
+  if (nationalDraft.busy) return toast("国家队操作处理中，请稍后再保存");
+  if (nationalDraft.dirty) return toast("请先应用国家队选拔草稿，或重置草稿后再保存", true);
   try {
     const result = await api("/api/save", { method: "POST", body: "{}" });
     toast(`已生成并验证 ${result.name}`);
@@ -982,9 +993,11 @@ async function saveChanges() {
 }
 
 async function resetChanges() {
+  if (nationalDraft.busy) return toast("国家队操作处理中，请稍后再重置");
   if (!confirm("确定放弃尚未保存的全部修改吗？")) return;
   try {
     await api("/api/reset", { method: "POST", body: "{}" });
+    clearNational();
     toast("已放弃全部未保存修改");
     await refreshState();
     if (app.selectedPlayer) await loadPlayer(app.selectedPlayer);
@@ -995,13 +1008,18 @@ async function resetChanges() {
 
 async function openSave(event) {
   event.preventDefault();
+  if (nationalDraft.busy) return toast("国家队操作处理中，请稍后再打开存档");
   const path = $("#openPathInput").value.trim();
   if (!path) return;
+  if (nationalDraft.dirty && !confirm("打开存档将放弃国家队选拔草稿，继续吗？")) return;
   try {
     await api("/api/open", { method: "POST", body: JSON.stringify({ path }) });
+    clearNational();
     $("#openDialog").close();
     app.selectedPlayer = null;
     app.selectedTeam = null;
+    app.meta = await api("/api/meta");
+    fillMeta();
     await refreshState();
     await searchPlayers();
     await searchTeams();
@@ -1011,6 +1029,7 @@ async function openSave(event) {
 }
 
 function bindEvents() {
+  bindNational();
   $$(".tab").forEach(tab => tab.addEventListener("click", () => switchView(tab.dataset.view)));
   ["#playerSearch", "#nationFilter", "#overallFilter"].forEach(selector => $(selector).addEventListener("input", () => debounce("playerTimer", searchPlayers)));
   $("#playerResults").addEventListener("keydown", handlePlayerResultsKeydown);
@@ -1053,6 +1072,213 @@ async function init() {
     await Promise.all([searchPlayers(), searchTeams()]);
     await loadTransferRosters();
   } catch (error) { toast(error.message, true); }
+}
+
+const nationalDraft = {
+  team: null,
+  roster: [],
+  dirty: false,
+  busy: false,
+  request: 0,
+  sorts: {
+    candidates: { key: "overallrating", direction: "desc" },
+    roster: { key: "jerseynumber", direction: "asc" },
+  },
+};
+
+function nationalSize() {
+  return nationalDraft.team?.expected_roster_size || 26;
+}
+
+function clearNational() {
+  nationalDraft.request++;
+  Object.assign(nationalDraft, { team: null, roster: [], dirty: false, busy: false });
+  $("#nationalTeam").value = "";
+  renderNational();
+}
+
+async function loadNational(teamId) {
+  const requestId = ++nationalDraft.request;
+  nationalDraft.busy = true;
+  renderNational();
+  try {
+    const team = await api(`/api/national-teams/${teamId}`);
+    if (requestId !== nationalDraft.request) return;
+    Object.assign(nationalDraft, {
+      team,
+      roster: team.roster.map(player => ({ ...player })),
+      dirty: false,
+    });
+    $("#nationalTeam").value = String(teamId);
+  } catch (error) {
+    if (requestId === nationalDraft.request) {
+      $("#nationalTeam").value = nationalDraft.team?.teamid || "";
+      toast(error.message, true);
+    }
+  } finally {
+    if (requestId === nationalDraft.request) {
+      nationalDraft.busy = false;
+      renderNational();
+    }
+  }
+}
+
+function nationalValidation() {
+  if (!nationalDraft.team) return "请选择国家队";
+  if (!nationalDraft.team.editable) {
+    return `原名单不是 ${nationalSize()} 人，已禁用编辑以保护存档`;
+  }
+  if (nationalDraft.roster.length !== nationalSize()) {
+    return `还需选拔 ${nationalSize() - nationalDraft.roster.length} 人，补足后才能应用`;
+  }
+  const numbers = nationalDraft.roster.map(player => player.jerseynumber);
+  if (numbers.some(number => !Number.isInteger(number) || number < 1 || number > 99)) {
+    return "号码必须为 1–99 的整数";
+  }
+  if (new Set(numbers).size !== numbers.length) return "号码重复，请调整后再应用";
+  return "";
+}
+
+function updateNationalStatus() {
+  const invalid = nationalValidation();
+  $("#nationalCount").textContent = `${nationalDraft.roster.length} / ${nationalSize()} 人`;
+  $("#nationalStatus").textContent = nationalDraft.busy
+    ? "正在处理…"
+    : invalid || (nationalDraft.dirty
+      ? "草稿尚未应用；应用后请在顶部保存为新存档"
+      : "名单完整 · 修改后请先应用，再保存为新存档");
+  $("#nationalApply").disabled = nationalDraft.busy || !nationalDraft.dirty || !!invalid;
+  $("#nationalReload").disabled = nationalDraft.busy || !nationalDraft.team;
+  $("#nationalAutoNumbers").disabled = nationalDraft.busy || !nationalDraft.team?.editable;
+  $("#nationalTeam").disabled = nationalDraft.busy;
+}
+
+function nationalSortHeader(side, key, label) {
+  const sort = nationalDraft.sorts[side];
+  const suffix = sort.key === key ? (sort.direction === "asc" ? " ↑" : " ↓") : " ↕";
+  return `<button class="sort-button" data-national-sort="${side}" data-key="${key}">${label}${suffix}</button>`;
+}
+
+function renderNational() {
+  const team = nationalDraft.team;
+  const selected = new Set(nationalDraft.roster.map(player => player.playerid));
+  const query = $("#nationalSearch").value.trim().toLocaleLowerCase();
+  const minimum = Number($("#nationalOverall").value || 0);
+  const position = $("#nationalPosition").value;
+  const candidates = (team?.candidates || []).filter(player =>
+    !selected.has(player.playerid)
+    && `${player.name} ${player.name_cn} ${player.playerid}`.toLocaleLowerCase().includes(query)
+    && player.overallrating >= minimum
+    && (!position || player.primary_position === position)
+  );
+  $("#nationalCandidateCount").textContent = `${candidates.length} 人`;
+  for (const side of ["candidates", "roster"]) {
+    const isRoster = side === "roster";
+    const list = sortedRoster(
+      isRoster ? nationalDraft.roster : candidates,
+      nationalDraft.sorts[side],
+    );
+    const root = $(isRoster ? "#nationalRoster" : "#nationalCandidates");
+    const disabled = nationalDraft.busy || !team?.editable;
+    root.innerHTML = `<table class="roster-table"><thead><tr>
+      ${isRoster ? `<th>${nationalSortHeader(side, "jerseynumber", "号码")}</th>` : ""}
+      <th>球员</th><th>${nationalSortHeader(side, "overallrating", "能力")}</th>
+      <th>${nationalSortHeader(side, "primary_position", "位置")}</th><th>操作</th>
+      </tr></thead><tbody>${list.map(player => `<tr>
+      ${isRoster ? `<td><input class="jersey-input" aria-label="${escapeHtml(player.name)} 的国家队号码" type="number" min="1" max="99" value="${escapeHtml(player.jerseynumber ?? "")}" data-national-number="${player.playerid}" ${disabled ? "disabled" : ""}></td>` : ""}
+      <td><strong>${escapeHtml(player.name_cn || player.name)}</strong><small>${escapeHtml(player.name)} · ${player.playerid}</small>${!isRoster ? `<small>${escapeHtml(player.club)}</small>` : ""}</td>
+      <td>${escapeHtml(player.overallrating)}</td><td>${escapeHtml(player.primary_position)}</td>
+      <td><button class="button ${isRoster ? "ghost" : "primary"}" data-national-${isRoster ? "remove" : "add"}="${player.playerid}" ${disabled || (!isRoster && (selected.size >= nationalSize() || player.unavailable)) ? "disabled" : ""}>${isRoster ? "移出" : player.unavailable ? "已入其他国家队" : "选入"}</button></td>
+      </tr>`).join("") || '<tr><td colspan="5">没有符合条件的球员</td></tr>'}</tbody></table>`;
+  }
+  updateNationalStatus();
+}
+
+function bindNational() {
+  $("#nationalTeam").addEventListener("change", () => {
+    const teamId = Number($("#nationalTeam").value);
+    if (nationalDraft.dirty && !confirm("切换国家队将放弃当前选拔草稿，继续吗？")) {
+      $("#nationalTeam").value = nationalDraft.team.teamid;
+      return;
+    }
+    if (teamId) loadNational(teamId); else clearNational();
+  });
+  ["#nationalSearch", "#nationalOverall", "#nationalPosition"].forEach(selector => {
+    $(selector).addEventListener("input", renderNational);
+  });
+  $("#nationalView").addEventListener("input", event => {
+    const playerId = Number(event.target.dataset.nationalNumber);
+    if (!playerId || nationalDraft.busy) return;
+    const player = nationalDraft.roster.find(item => item.playerid === playerId);
+    if (!player) return;
+    player.jerseynumber = event.target.value === "" ? null : Number(event.target.value);
+    nationalDraft.dirty = true;
+    updateNationalStatus();
+  });
+  $("#nationalView").addEventListener("click", event => {
+    const button = event.target.closest("button");
+    if (!button || button.disabled || nationalDraft.busy) return;
+    const { nationalSort, key, nationalAdd, nationalRemove } = button.dataset;
+    if (nationalSort) {
+      const sort = nationalDraft.sorts[nationalSort];
+      nationalDraft.sorts[nationalSort] = {
+        key,
+        direction: sort.key === key && sort.direction === "asc" ? "desc" : "asc",
+      };
+    } else if (nationalAdd && nationalDraft.roster.length < nationalSize()) {
+      const player = nationalDraft.team.candidates.find(item => item.playerid === Number(nationalAdd));
+      const used = new Set(nationalDraft.roster.map(item => item.jerseynumber));
+      let number = 1;
+      while (used.has(number)) number++;
+      nationalDraft.roster.push({ ...player, jerseynumber: number });
+      nationalDraft.dirty = true;
+    } else if (nationalRemove) {
+      nationalDraft.roster = nationalDraft.roster.filter(item => item.playerid !== Number(nationalRemove));
+      nationalDraft.dirty = true;
+    } else {
+      return;
+    }
+    renderNational();
+  });
+  $("#nationalAutoNumbers").addEventListener("click", () => {
+    sortedRoster(nationalDraft.roster, nationalDraft.sorts.roster).forEach((player, index) => {
+      player.jerseynumber = index + 1;
+    });
+    nationalDraft.dirty = true;
+    renderNational();
+  });
+  $("#nationalReload").addEventListener("click", () => {
+    if (!nationalDraft.dirty || confirm("确定放弃当前国家队草稿？")) {
+      loadNational(nationalDraft.team.teamid);
+    }
+  });
+  $("#nationalApply").addEventListener("click", async () => {
+    if (nationalValidation() || nationalDraft.busy) return;
+    nationalDraft.busy = true;
+    renderNational();
+    try {
+      const teamId = nationalDraft.team.teamid;
+      await api(`/api/national-teams/${teamId}`, {
+        method: "POST",
+        body: JSON.stringify({ roster: nationalDraft.roster }),
+      });
+      nationalDraft.dirty = false;
+      await refreshState();
+      await loadNational(teamId);
+      toast("国家队选拔已应用，请点击顶部“保存为新存档”");
+    } catch (error) {
+      toast(error.message, true);
+    } finally {
+      nationalDraft.busy = false;
+      renderNational();
+    }
+  });
+  window.addEventListener("beforeunload", event => {
+    if (nationalDraft.dirty) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+  });
 }
 
 init();

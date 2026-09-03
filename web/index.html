@@ -9,7 +9,7 @@
 <body>
   <header class="app-header">
     <div class="brand">
-      <div class="brand-mark">19</div>
+      <div class="brand-mark">26</div>
       <div>
         <h1>FC26 存档编辑器</h1>
         <p id="savePath">正在加载存档…</p>
@@ -20,6 +20,7 @@
       <button class="tab" data-view="teams">球队编辑</button>
       <button class="tab" data-view="transfers">快捷转会</button>
       <button class="tab" data-view="exactTransfers">精确转会</button>
+      <button class="tab" data-view="national">国家队选拔</button>
     </nav>
     <div class="header-actions">
       <span class="pending-badge" id="pendingBadge">0 项待保存</span>
@@ -30,6 +31,37 @@
   </header>
 
   <main>
+    <section id="nationalView" class="national-page view">
+      <div class="national-columns">
+        <article class="panel national-card">
+          <div class="national-card-heading">
+            <h2>入选名单 <span id="nationalCount" class="count">0 / 26 人</span></h2>
+            <div class="field national-team-picker">
+              <select id="nationalTeam" aria-label="国家队"><option value="">请选择国家队</option></select>
+            </div>
+          </div>
+          <p id="nationalStatus" role="status">尚未选择国家队</p>
+          <div id="nationalRoster" class="national-list"></div>
+          <div class="sticky-actions">
+            <button id="nationalReload" class="button ghost" disabled>重置草稿</button>
+            <button id="nationalAutoNumbers" class="button ghost" disabled>按当前排序编号 1–26</button>
+            <button id="nationalApply" class="button primary" disabled>应用选拔与号码</button>
+          </div>
+        </article>
+        <article class="panel national-card">
+          <div class="national-card-heading">
+            <h2>候选球员 <span id="nationalCandidateCount" class="count">0 人</span></h2>
+          </div>
+          <div class="national-filters">
+            <input id="nationalSearch" type="search" placeholder="中文名、英文名或 ID" aria-label="候选球员搜索">
+            <input id="nationalOverall" type="number" min="0" max="99" placeholder="最低能力" aria-label="最低能力">
+            <select id="nationalPosition" aria-label="候选位置"><option value="">全部位置</option></select>
+          </div>
+          <div id="nationalCandidates" class="national-list"><p>请选择国家队</p></div>
+          <p class="national-note">先移出再选入，名单须满 26 人；号码 1–99 且不重复。排序仅改变显示，不改首发或阵型。</p>
+        </article>
+      </div>
+    </section>
     <section id="playersView" class="workspace view active">
       <aside class="sidebar panel">
         <div class="panel-title">

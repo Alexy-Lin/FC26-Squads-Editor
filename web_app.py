@@ -19,6 +19,7 @@ from core.name_resolver import NameResolver
 from core.sav_file import SavFile
 from core.traits import FC26_TRAIT1, FC26_TRAIT2
 from services.changes import ChangeSet, FieldChange
+from services.national_service import NationalService
 from services.player_service import PlayerService
 from services.roster_service import RosterService
 from services.save_service import SafeSaveService
@@ -317,6 +318,54 @@ class EditorState:
     def team_options(self):
         return {"clubs": self.rosters.team_options(False), "national_teams": self.rosters.team_options(True)}
 
+    def national_detail(self, team_id):
+        service = NationalService(self.rosters)
+        nation, links = service.context(team_id)
+        candidates = []
+        unavailable = {
+            record.get("playerid")
+            for record in self.rosters.table.records
+            if record.get("teamid") != team_id
+            and self.resolver.is_national_team(record.get("teamid"))
+        }
+        for record, name, name_cn in self.player_index:
+            if record.get("nationality") != nation:
+                continue
+            player_id = record["playerid"]
+            club, _national = self.resolver.get_player_team(player_id)
+            candidates.append({
+                "playerid": player_id,
+                "name": name,
+                "name_cn": name_cn,
+                "overallrating": record.get("overallrating", 0),
+                "primary_position": POSITION_NAMES.get(
+                    record.get("preferredposition1"), ""
+                ),
+                "club": club or "",
+                "unavailable": player_id in unavailable,
+            })
+        return {
+            **self.team_detail(team_id),
+            "nation_id": nation,
+            "candidates": candidates,
+            "roster_size": len(links),
+            "expected_roster_size": service.EXPECTED_ROSTER_SIZE,
+            "editable": len(links) == service.EXPECTED_ROSTER_SIZE,
+        }
+
+    def update_national(self, team_id, body):
+        changes = NationalService(self.rosters).apply(team_id, body)
+        for resolver in (
+            self.resolver,
+            self.players.resolver,
+            self.teams.resolver,
+            self.rosters.resolver,
+        ):
+            resolver.refresh_player_teams(self.rosters.table)
+        self._record_changes(changes)
+        self._log_changes(f"国家队 {team_id} 选拔", changes)
+        return {"applied": len(changes), "pending_changes": len(self.changes)}
+
     def save(self):
         if not self.changes:
             raise ValueError("没有待保存的修改")
@@ -448,6 +497,17 @@ def create_app(state=None):
             return denied
         with state.lock:
             return jsonify(state.transfer_player(request.get_json() or {}))
+
+    @app.route("/api/national-teams/<int:team_id>", methods=["GET", "POST"])
+    def api_national(team_id):
+        if request.method == "POST":
+            denied = require_token()
+            if denied:
+                return denied
+        with state.lock:
+            if request.method == "POST":
+                return jsonify(state.update_national(team_id, request.get_json() or {}))
+            return jsonify(state.national_detail(team_id))
 
     @app.route("/api/save", methods=["POST"])
     def api_save():

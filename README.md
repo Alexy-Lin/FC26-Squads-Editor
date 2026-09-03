@@ -13,6 +13,7 @@ EA SPORTS FC 26 `Squads` 存档编辑器，提供中文 Web 界面、命令行�
 - 修改普通特性和图标特性 / Edit regular and icon traits
 - 查看球队阵容并批量修改球衣号码 / View squads and batch-edit shirt numbers
 - 俱乐部、自由球员之间转会 / Transfer players between clubs and free agents
+- 国家队选拔：按国籍筛选候选人，选出 26 人并设置号码 / Select 26-player national squads by nationality and assign shirt numbers
 - 导出球员表或完整存档数据到 Excel / Export player tables or complete save data to Excel
 
 ## 安装 / Installation
@@ -66,7 +67,11 @@ At startup, the editor automatically loads the newest `Squads*` file in the FC26
 
 球队页面可以查看阵容并批量填写球衣号码。转会页面可以选择来源球队和目标球队，再点击球员对应的转会按钮。
 
+“国家队选拔”页面可以选择国家队，按姓名、能力和位置筛选同国籍球员，移入或移出候选人并编辑号码。名单必须满足 FC26 的 26 人规则，点击“应用选拔与号码”后，再点击顶部“保存为新存档”。
+
 The Teams page supports squad viewing and batch shirt-number editing. The Transfers page lets you select a source and target club, then transfer players individually.
+
+The National Team page lets you choose a country, filter eligible players by name, rating, or position, add or remove players, and edit shirt numbers. The roster must contain 26 players for FC26. Apply the selection first, then click “Save as new save”.
 
 ## 命令行 / Command line
 

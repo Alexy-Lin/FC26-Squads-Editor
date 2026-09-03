@@ -16,6 +16,27 @@
 
 * { box-sizing: border-box; }
 
+.national-page.active { display: block; }
+.national-card { padding: 20px; }
+.national-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 39px; margin-bottom: 12px; flex-wrap: wrap; }
+.national-card-heading h2 { margin: 0; white-space: nowrap; }
+.national-team-picker { flex: 1; min-width: 180px; max-width: 320px; }
+.national-note, #nationalStatus { color: var(--muted); font-size: 13px; }
+.national-note { margin: 14px 0 0; line-height: 1.5; }
+.national-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.national-card { min-width: 0; }
+.national-filters { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+.national-filters input, .national-filters select { min-width: 0; width: 100%; height: 39px; border: 1px solid var(--line); border-radius: 9px; padding: 0 10px; background: #fbfcfb; color: var(--ink); }
+.national-filters input:focus, .national-filters select:focus { outline: 2px solid #54a97a; outline-offset: 1px; }
+.national-list { overflow: auto; max-height: 65vh; }
+.national-list small { display: block; color: var(--muted); font-size: 12px; }
+.national-list .roster-table { font-size: 14px; }
+.national-list .roster-table th { top: 0; font-size: 12px; }
+.national-card .button.ghost { color: var(--ink); border-color: var(--line); background: var(--surface-soft); }
+.national-list .button { padding: 6px 8px; white-space: nowrap; }
+.national-card .sticky-actions { flex-wrap: wrap; position: static; margin: 18px -20px -20px; padding: 13px 20px; }
+@media (max-width: 1250px) { .national-columns { grid-template-columns: 1fr; } }
+
 body {
   margin: 0;
   min-width: 1024px;
