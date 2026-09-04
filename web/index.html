@@ -21,6 +21,7 @@
       <button class="tab" data-view="transfers">快捷转会</button>
       <button class="tab" data-view="exactTransfers">精确转会</button>
       <button class="tab" data-view="national">国家队选拔</button>
+      <button class="tab" data-view="quick">快捷功能</button>
     </nav>
     <div class="header-actions">
       <span class="pending-badge" id="pendingBadge">0 项待保存</span>
@@ -31,6 +32,43 @@
   </header>
 
   <main>
+    <section id="quickView" class="quick-page view">
+      <div class="quick-hero panel">
+        <div>
+          <span class="eyebrow">QUICK FEATURES</span>
+          <h2>快捷功能</h2>
+          <p>常用批量操作集中在这里。点击后先应用到内存，确认无误后再点击顶部“保存为新存档”。</p>
+        </div>
+        <span class="quick-safe-badge">安全写入 · 新文件保存</span>
+      </div>
+      <div class="quick-grid">
+        <article class="panel quick-card">
+          <div class="quick-card-icon">18</div>
+          <div>
+            <span class="eyebrow">PLAYER AGE</span>
+            <h2>批量设置年龄为 18 岁</h2>
+          </div>
+          <p>将当前存档中全部球员的年龄统一设置为 18 岁，适合快速创建年轻化存档。</p>
+          <div class="quick-card-actions">
+            <button id="quickAge18" class="button primary">设置全部球员为 18 岁</button>
+            <span id="quickAge18Status" class="quick-status">修改会先暂存，随顶部保存按钮写入新存档。</span>
+          </div>
+        </article>
+        <article class="panel quick-card">
+          <div class="quick-card-icon trophy">★</div>
+          <div>
+            <span class="eyebrow">LEGEND PLAYERS</span>
+            <h2>添加缺失传奇球员</h2>
+          </div>
+          <p id="legendSummary">正在检查当前存档中的缺失传奇球员…</p>
+          <div id="legendPreview" class="legend-preview"></div>
+          <div class="quick-card-actions">
+            <button id="quickAddLegends" class="button primary" disabled>一键添加缺失传奇</button>
+            <span class="quick-status">传奇球员会以自由球员身份加入，不会覆盖存档中已有球员。</span>
+          </div>
+        </article>
+      </div>
+    </section>
     <section id="nationalView" class="national-page view">
       <div class="national-columns">
         <article class="panel national-card">

@@ -26,7 +26,7 @@ class SafeSaveService:
     def save(
         self,
         sav: SavFile,
-        changes: Iterable[FieldChange] = (),
+        changes: Iterable[FieldChange | RecordChange] = (),
         output_dir: Optional[Path] = None,
         output_path: Optional[Path] = None,
     ) -> SaveResult:
@@ -90,17 +90,50 @@ class SafeSaveService:
         if not loaded.db:
             raise ValueError("保存验证失败：DB 未能重载")
         counts_after = {name: len(table.records) for name, table in loaded.db.tables.items()}
+        # counts_before is taken from the already-staged in-memory DB.  That
+        # includes intentional RecordChange additions, so the reloaded file
+        # must have exactly the same effective record counts.
         if counts_after != counts_before:
             raise ValueError("保存验证失败：表或有效记录数量发生意外变化")
 
     @staticmethod
     def _validate_changes(changes, loaded: SavFile):
+        record_indexes = {}
+        changed_fields = {}
+        for change in changes:
+            if isinstance(change, FieldChange):
+                changed_fields.setdefault(
+                    (change.table, change.key_field, change.key_value),
+                    set(),
+                ).add(change.field)
         for change in changes:
             table = loaded.db.get_table(change.table)
             if not table:
                 raise ValueError(f"保存验证失败：缺少表 {change.table}")
-            record = next((r for r in table.records if r.get(change.key_field) == change.key_value), None)
+            index_key = (change.table, change.key_field)
+            if index_key not in record_indexes:
+                record_indexes[index_key] = {
+                    record.get(change.key_field): record
+                    for record in table.records
+                }
+            record = record_indexes[index_key].get(change.key_value)
             if isinstance(change, RecordChange):
+                if change.action == "add":
+                    edited_fields = changed_fields.get(
+                        (change.table, change.key_field, change.key_value),
+                        set(),
+                    )
+                    if record is None or any(
+                        record.get(key) != value
+                        for key, value in change.record.items()
+                        if key not in edited_fields
+                    ):
+                        raise ValueError(f"保存验证失败：{change.table} 新记录未正确写入")
+                elif change.action == "delete":
+                    if record is not None:
+                        raise ValueError(f"保存验证失败：{change.table} 删除记录仍存在")
+                else:
+                    raise ValueError(f"保存验证失败：不支持的记录操作 {change.action}")
                 continue
             if record is None or record.get(change.field) != change.new_value:
                 raise ValueError(f"保存验证失败：{change.table}.{change.field} 未正确写入")

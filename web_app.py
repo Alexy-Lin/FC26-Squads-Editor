@@ -18,9 +18,11 @@ from core.meta_parser import MetaDatabase
 from core.name_resolver import NameResolver
 from core.sav_file import SavFile
 from core.traits import FC26_TRAIT1, FC26_TRAIT2
-from services.changes import ChangeSet, FieldChange
+from services.changes import ChangeSet, FieldChange, RecordChange
+from services.legend_service import LegendService
 from services.national_service import NationalService
 from services.player_service import PlayerService
+from services.quick_service import QuickFeatureService
 from services.roster_service import RosterService
 from services.save_service import SafeSaveService
 from services.team_service import TeamService
@@ -52,18 +54,12 @@ class EditorState:
         if selected:
             self.load(selected)
 
-    def load(self, path):
-        path = Path(path)
-        if not path.is_file():
-            raise ValueError(f"找不到存档：{path}")
-        sav = SavFile()
-        sav.load(path, self.meta)
-        self.sav = sav
-        self.changes.clear()
-        self.resolver = NameResolver(sav.db)
-        self.players = PlayerService(sav)
-        self.rosters = RosterService(sav)
-        self.teams = TeamService(sav)
+    def _rebuild_indexes(self):
+        """Recreate table services and name/team indexes after record additions."""
+        self.resolver = NameResolver(self.sav.db)
+        self.players = PlayerService(self.sav)
+        self.rosters = RosterService(self.sav)
+        self.teams = TeamService(self.sav)
         self.player_index = []
         for record in self.players.table.records:
             player_id = record.get("playerid", 0)
@@ -74,6 +70,16 @@ class EditorState:
                 self.resolver.get_name(record),
                 self.resolver.get_name_cn(record),
             ))
+
+    def load(self, path):
+        path = Path(path)
+        if not path.is_file():
+            raise ValueError(f"找不到存档：{path}")
+        sav = SavFile()
+        sav.load(path, self.meta)
+        self.sav = sav
+        self.changes.clear()
+        self._rebuild_indexes()
         if self.remember_path:
             save_config({"last_save_path": str(path.resolve())})
         self._log(f"已加载存档 {path.name}，球员 {len(self.player_index)} 人")
@@ -97,6 +103,8 @@ class EditorState:
         for change in changes:
             if isinstance(change, FieldChange):
                 details.append(f"{change.table}.{change.field} {change.old_value}->{change.new_value}")
+            elif isinstance(change, RecordChange):
+                details.append(f"{change.table} {change.action} {change.key_field}={change.key_value}")
         self._log(f"{label}：{', '.join(details[:6]) or '无字段变化'}")
 
     @staticmethod
@@ -366,6 +374,33 @@ class EditorState:
         self._log_changes(f"国家队 {team_id} 选拔", changes)
         return {"applied": len(changes), "pending_changes": len(self.changes)}
 
+    def quick_legend_preview(self):
+        return LegendService(self.sav).preview()
+
+    def quick_set_age18(self):
+        changes = QuickFeatureService(self.sav).set_all_players_age18()
+        self._record_changes(changes)
+        self._log(f"已将 {len(changes)} 名球员的年龄设置为 18 岁")
+        return {
+            "applied": len(changes),
+            "players_updated": len(changes),
+            "pending_changes": len(self.changes),
+        }
+
+    def quick_add_legends(self):
+        service = LegendService(self.sav)
+        changes, result = service.add_missing_legends()
+        if len(changes):
+            self._rebuild_indexes()
+            self._record_changes(changes)
+        self._log(f"已添加 {result['added']} 名当前存档缺失的传奇球员")
+        return {
+            "added": result["added"],
+            "legends": result["legends"],
+            "applied": len(changes),
+            "pending_changes": len(self.changes),
+        }
+
     def save(self):
         if not self.changes:
             raise ValueError("没有待保存的修改")
@@ -384,6 +419,10 @@ class EditorState:
 
     def _record_changes(self, changes):
         for change in changes:
+            if isinstance(change, RecordChange):
+                key = (change.table, change.key_field, change.key_value, "__record__")
+                self.changes[key] = change
+                continue
             if not isinstance(change, FieldChange):
                 continue
             key = (change.table, change.key_field, change.key_value, change.field)
@@ -508,6 +547,27 @@ def create_app(state=None):
             if request.method == "POST":
                 return jsonify(state.update_national(team_id, request.get_json() or {}))
             return jsonify(state.national_detail(team_id))
+
+    @app.route("/api/quick/legends")
+    def api_quick_legends():
+        with state.lock:
+            return jsonify(state.quick_legend_preview())
+
+    @app.route("/api/quick/age18", methods=["POST"])
+    def api_quick_age18():
+        denied = require_token()
+        if denied:
+            return denied
+        with state.lock:
+            return jsonify(state.quick_set_age18())
+
+    @app.route("/api/quick/add-legends", methods=["POST"])
+    def api_quick_add_legends():
+        denied = require_token()
+        if denied:
+            return denied
+        with state.lock:
+            return jsonify(state.quick_add_legends())
 
     @app.route("/api/save", methods=["POST"])
     def api_save():

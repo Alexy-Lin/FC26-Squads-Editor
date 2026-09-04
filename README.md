@@ -14,6 +14,8 @@ EA SPORTS FC 26 `Squads` 存档编辑器，提供中文 Web 界面、命令行�
 - 查看球队阵容并批量修改球衣号码 / View squads and batch-edit shirt numbers
 - 俱乐部、自由球员之间转会 / Transfer players between clubs and free agents
 - 国家队选拔：按国籍筛选候选人，选出 26 人并设置号码 / Select 26-player national squads by nationality and assign shirt numbers
+- 快捷功能：批量设置全部球员为 18 岁 / Quick feature: set all players to age 18
+- 快捷功能：一键添加当前存档缺失的传奇球员 / Quick feature: add missing legends in one click
 - 导出球员表或完整存档数据到 Excel / Export player tables or complete save data to Excel
 
 ## 安装 / Installation
@@ -69,9 +71,23 @@ At startup, the editor automatically loads the newest `Squads*` file in the FC26
 
 “国家队选拔”页面可以选择国家队，按姓名、能力和位置筛选同国籍球员，移入或移出候选人并编辑号码。名单必须满足 FC26 的 26 人规则，点击“应用选拔与号码”后，再点击顶部“保存为新存档”。
 
+“快捷功能”页面提供两个一键操作：
+
+1. “设置全部球员为 18 岁”：把当前存档所有球员的年龄统一设置为 18 岁。
+2. “一键添加缺失传奇”：读取项目内置传奇清单，把当前存档中没有的传奇球员以自由球员身份加入。
+
+两个操作都会先暂存修改，不会覆盖原存档；完成后请点击顶部“保存为新存档”。再次点击“放弃修改”即可撤销尚未保存的操作。
+
 The Teams page supports squad viewing and batch shirt-number editing. The Transfers page lets you select a source and target club, then transfer players individually.
 
 The National Team page lets you choose a country, filter eligible players by name, rating, or position, add or remove players, and edit shirt numbers. The roster must contain 26 players for FC26. Apply the selection first, then click “Save as new save”.
+
+The “Quick Features” page provides two one-click actions:
+
+1. “Set all players to age 18” updates the age of every player in the loaded save.
+2. “Add missing legends” adds legends from the bundled list that are not already in the save, as free agents.
+
+Both actions are staged in memory first. Click “Save as new save” when ready; click “Discard changes” to undo anything that has not been saved.
 
 ## 命令行 / Command line
 

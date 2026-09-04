@@ -60,6 +60,7 @@ function switchView(viewName) {
   if (viewName === "national" && nationalDraft.team && !nationalDraft.dirty) {
     loadNational(nationalDraft.team.teamid);
   }
+  if (viewName === "quick") loadQuickLegends();
 }
 
 async function refreshState() {
@@ -977,6 +978,66 @@ async function applyNumbers(teamId, root = $("#teamDetail")) {
   } catch (error) { toast(error.message, true); }
 }
 
+async function loadQuickLegends() {
+  const summary = $("#legendSummary");
+  const preview = $("#legendPreview");
+  const button = $("#quickAddLegends");
+  if (!summary || !preview || !button) return;
+  try {
+    const data = await api("/api/quick/legends");
+    summary.textContent = data.missing_count
+      ? `当前有 ${data.missing_count} 名传奇球员不在存档（共识别 ${data.available_count} 名传奇球员）。`
+      : "当前存档已经包含清单中的全部传奇球员。";
+    const names = (data.missing || []).slice(0, 16).map(item => item.name);
+    preview.textContent = names.length
+      ? `${names.join("、")}${data.missing_count > names.length ? " 等" : ""}`
+      : "无需添加。";
+    button.disabled = !data.missing_count;
+  } catch (error) {
+    summary.textContent = error.message;
+    preview.textContent = "传奇数据库不可用。";
+    button.disabled = true;
+  }
+}
+
+async function applyQuickAge18() {
+  const button = $("#quickAge18");
+  const status = $("#quickAge18Status");
+  button.disabled = true;
+  status.textContent = "正在处理当前存档中的球员…";
+  try {
+    const result = await api("/api/quick/age18", { method: "POST", body: "{}" });
+    status.textContent = result.players_updated
+      ? `已暂存 ${result.players_updated.toLocaleString()} 名球员的年龄修改。`
+      : "所有球员已经是 18 岁，无需修改。";
+    await refreshState();
+    toast(result.players_updated
+      ? `已将 ${result.players_updated.toLocaleString()} 名球员设置为 18 岁，请保存为新存档`
+      : "所有球员已经是 18 岁");
+  } catch (error) {
+    status.textContent = error.message;
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function addQuickLegends() {
+  const button = $("#quickAddLegends");
+  button.disabled = true;
+  try {
+    const result = await api("/api/quick/add-legends", { method: "POST", body: "{}" });
+    toast(result.added
+      ? `已暂存 ${result.added} 名传奇球员，请保存为新存档`
+      : "没有需要添加的传奇球员");
+    await refreshState();
+    await Promise.all([loadQuickLegends(), searchPlayers(), loadTransferRosters()]);
+  } catch (error) {
+    toast(error.message, true);
+    await loadQuickLegends();
+  }
+}
+
 async function saveChanges() {
   if (nationalDraft.busy) return toast("国家队操作处理中，请稍后再保存");
   if (nationalDraft.dirty) return toast("请先应用国家队选拔草稿，或重置草稿后再保存", true);
@@ -988,7 +1049,7 @@ async function saveChanges() {
     await refreshState();
     await searchPlayers();
     await searchTeams();
-    await loadTransferRosters();
+    await Promise.all([loadTransferRosters(), loadQuickLegends()]);
   } catch (error) { toast(error.message, true); }
 }
 
@@ -1002,7 +1063,7 @@ async function resetChanges() {
     await refreshState();
     if (app.selectedPlayer) await loadPlayer(app.selectedPlayer);
     if (app.selectedTeam) await loadTeam(app.selectedTeam);
-    await loadTransferRosters();
+    await Promise.all([loadTransferRosters(), loadQuickLegends()]);
   } catch (error) { toast(error.message, true); }
 }
 
@@ -1023,13 +1084,15 @@ async function openSave(event) {
     await refreshState();
     await searchPlayers();
     await searchTeams();
-    await loadTransferRosters();
+    await Promise.all([loadTransferRosters(), loadQuickLegends()]);
     toast("存档已加载");
   } catch (error) { toast(error.message, true); }
 }
 
 function bindEvents() {
   bindNational();
+  $("#quickAge18").addEventListener("click", applyQuickAge18);
+  $("#quickAddLegends").addEventListener("click", addQuickLegends);
   $$(".tab").forEach(tab => tab.addEventListener("click", () => switchView(tab.dataset.view)));
   ["#playerSearch", "#nationFilter", "#overallFilter"].forEach(selector => $(selector).addEventListener("input", () => debounce("playerTimer", searchPlayers)));
   $("#playerResults").addEventListener("keydown", handlePlayerResultsKeydown);
@@ -1069,8 +1132,7 @@ async function init() {
     fillMeta();
     bindEvents();
     await refreshState();
-    await Promise.all([searchPlayers(), searchTeams()]);
-    await loadTransferRosters();
+    await Promise.all([searchPlayers(), searchTeams(), loadTransferRosters(), loadQuickLegends()]);
   } catch (error) { toast(error.message, true); }
 }
 
