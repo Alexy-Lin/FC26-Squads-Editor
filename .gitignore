@@ -6,5 +6,6 @@ __pycache__/
 testdata/Squads*
 data/birthdate_snapshots/
 Squads*
+!Squads20261014200524517
 *.sav
 *.xlsx
