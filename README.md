@@ -58,17 +58,23 @@ EA SPORTS FC 26 `Squads` 存档编辑器。中文 Web 界面，支持球员修�
 
 ## 安装
 
-推荐让 AI 编程工具自动完成安装，无需手动配置环境。
+推荐让 AI 编程工具自动完成安装，无需手动克隆或配置环境。
 
-把下面这段话发给 **opencode**、**workbuddy**、**Claude Code**、**Cursor** 等任意 AI 编程工具即可：
+把**仓库链接**和下面这段话一起发给 **opencode**、**workbuddy**、**Claude Code**、**Cursor** 等任意 AI 编程工具：
 
-> 请帮我在本地安装并运行这个 FC26 存档编辑器项目：检查 Python 版本、安装 `requirements.txt` 里的依赖、启动编辑器，并告诉我访问地址。
+> 请帮我安装并运行这个项目：https://github.com/Alexy-Lin/FC26-Squads-Editor
+>
+> 把仓库克隆到本地，检查 Python 版本，安装 `requirements.txt` 里的依赖，然后启动编辑器并告诉我访问地址。
 
-AI 工具会自行阅读项目文件、安装依赖并启动服务。
+AI 工具会自行克隆仓库、阅读项目文件、安装依赖并启动服务。
 
 ### 手动安装
 
-如果你想自己操作，在项目目录双击 `start_editor.bat` 即可。脚本会自动选择 Python、安装缺少的依赖并启动编辑器。
+如果你想自己操作，先克隆仓库，再在项目目录双击 `start_editor.bat`。脚本会自动选择 Python、安装缺少的依赖并启动编辑器。
+
+```powershell
+git clone https://github.com/Alexy-Lin/FC26-Squads-Editor.git
+```
 
 也可以在项目目录打开 PowerShell 手动执行：
 
@@ -276,17 +282,23 @@ Both the legend and the veteran cards have a **View list** button showing the fu
 
 ## Installation
 
-The recommended way is to let an AI coding tool handle the setup, so no manual configuration is needed.
+The recommended way is to let an AI coding tool handle the setup, so there is nothing to clone or configure by hand.
 
-Paste this into **opencode**, **workbuddy**, **Claude Code**, **Cursor**, or any similar AI coding tool:
+Send the **repository link** together with the prompt below to **opencode**, **workbuddy**, **Claude Code**, **Cursor**, or any similar AI coding tool:
 
-> Please install and run this FC26 save editor project locally for me: check the Python version, install the dependencies from `requirements.txt`, start the editor, and tell me the address to open.
+> Please install and run this project for me: https://github.com/Alexy-Lin/FC26-Squads-Editor
+>
+> Clone the repository locally, check the Python version, install the dependencies from `requirements.txt`, then start the editor and tell me the address to open.
 
-The tool will read the project files, install dependencies, and start the service on its own.
+The tool will clone the repository, read the project files, install dependencies, and start the service on its own.
 
 ### Manual installation
 
-To do it yourself, double-click `start_editor.bat` in the project folder. It selects Python automatically, installs any missing dependencies, and starts the editor.
+To do it yourself, clone the repository first, then double-click `start_editor.bat` in the project folder. It selects Python automatically, installs any missing dependencies, and starts the editor.
+
+```powershell
+git clone https://github.com/Alexy-Lin/FC26-Squads-Editor.git
+```
 
 You can also open PowerShell in the project folder and run:
 
