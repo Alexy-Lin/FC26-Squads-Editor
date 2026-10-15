@@ -12,7 +12,7 @@ from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
 
-from core.config import choose_startup_save, load as load_config, save as save_config
+from core.config import choose_startup_save, find_save_candidates, load as load_config, save as save_config
 from core.mappings import ATTRIBUTE_CATEGORIES, NATIONS_CN, OPTION_MAPS, POSITION_NAMES
 from core.meta_parser import MetaDatabase
 from core.name_resolver import NameResolver
@@ -21,6 +21,7 @@ from core.traits import FC26_TRAIT1, FC26_TRAIT2
 from services.changes import ChangeSet, FieldChange, RecordChange
 from services.legend_service import LegendService
 from services.national_service import NationalService
+from services.peak_service import PeakRestoreService
 from services.player_service import PlayerService
 from services.quick_service import QuickFeatureService
 from services.roster_service import RosterService
@@ -32,6 +33,17 @@ APP_ROOT = Path(__file__).resolve().parent
 WEB_ROOT = APP_ROOT / "web"
 HEADS_ROOT = APP_ROOT / "data" / "heads"
 META_PATH = APP_ROOT / "data" / "fifa_ng_db-meta.xml"
+
+
+def as_bool(value, default=False):
+    """Parse a boolean coming from JSON or a query string ("1"/"true"/"yes"/"all")."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return str(value).strip().lower() in ("1", "true", "yes", "on", "all")
 
 
 class EditorState:
@@ -93,6 +105,40 @@ class EditorState:
             "pending_changes": len(self.changes),
             "token": self.token,
         }
+
+    def pick_save_path(self):
+        """Open the native file dialog (Explorer) and return the chosen save."""
+        from core.file_dialog import default_save_dir, pick_file, tk_available, win32_available
+
+        directory = default_save_dir()
+        try:
+            chosen = pick_file(initial_dir=directory)
+        except Exception as exc:  # pragma: no cover - dialog backends are defensive
+            return {"error": f"无法打开系统文件选择窗口：{exc}", "cancelled": False,
+                    "start_dir": str(directory or "")}
+        if not chosen:
+            return {"cancelled": True, "start_dir": str(directory or "")}
+        path = Path(chosen)
+        if not path.is_file():
+            return {"error": f"找不到存档：{path}", "cancelled": False}
+        self._log(f"通过系统文件选择窗口选中 {path.name}")
+        return {"path": str(path), "name": path.name, "cancelled": False,
+                "start_dir": str(directory or ""),
+                "dialog_backends": {"win32": win32_available(), "tk": tk_available()}}
+
+    def load_by_filename(self, filename):
+        """Resolve a save by name inside the known FC26 settings folders."""
+        name = Path(str(filename or "")).name
+        if not name:
+            raise ValueError("没有提供存档文件名")
+        candidates = find_save_candidates()
+        match = next((item for item in candidates if item.name == name), None)
+        if match is None:
+            raise ValueError(
+                f"在 FC26 存档目录里找不到 {name}（共 {len(candidates)} 个候选存档）"
+            )
+        self.load(match)
+        return self.summary()
 
     def _log(self, message):
         if self.remember_path:
@@ -330,6 +376,9 @@ class EditorState:
         service = NationalService(self.rosters)
         nation, links = service.context(team_id)
         candidates = []
+        # 男足/女足共用 nationality id，按名单性别过滤；同时排除 5v5/Rush 占位球员
+        gender = service.roster_gender(links)
+        placeholders = service.placeholder_player_ids()
         unavailable = {
             record.get("playerid")
             for record in self.rosters.table.records
@@ -340,6 +389,8 @@ class EditorState:
             if record.get("nationality") != nation:
                 continue
             player_id = record["playerid"]
+            if not service.is_candidate(record, gender, placeholders):
+                continue
             club, _national = self.resolver.get_player_team(player_id)
             candidates.append({
                 "playerid": player_id,
@@ -349,6 +400,7 @@ class EditorState:
                 "primary_position": POSITION_NAMES.get(
                     record.get("preferredposition1"), ""
                 ),
+                "position": record.get("preferredposition1"),
                 "club": club or "",
                 "unavailable": player_id in unavailable,
             })
@@ -356,9 +408,11 @@ class EditorState:
             **self.team_detail(team_id),
             "nation_id": nation,
             "candidates": candidates,
+            "gender": gender,
+            "excluded_placeholders": len(placeholders),
             "roster_size": len(links),
-            "expected_roster_size": service.EXPECTED_ROSTER_SIZE,
-            "editable": len(links) == service.EXPECTED_ROSTER_SIZE,
+            "expected_roster_size": service.expected_roster_size(links),
+            "editable": len(links) >= service.MIN_ROSTER_SIZE,
         }
 
     def update_national(self, team_id, body):
@@ -374,29 +428,93 @@ class EditorState:
         self._log_changes(f"国家队 {team_id} 选拔", changes)
         return {"applied": len(changes), "pending_changes": len(self.changes)}
 
-    def quick_legend_preview(self):
-        return LegendService(self.sav).preview()
+    def quick_legend_preview(self, body=None):
+        body = body or {}
+        include_women = as_bool(body.get("include_women"), False)
+        include_all = as_bool(body.get("scope_all") or body.get("include_all"), False) \
+            or str(body.get("scope", "")).lower() == "all"
+        return LegendService(self.sav, include_women=include_women).preview(include_all=include_all)
 
-    def quick_set_age18(self):
-        changes = QuickFeatureService(self.sav).set_all_players_age18()
+    def quick_set_age18(self, age=18):
+        changes = QuickFeatureService(self.sav).set_all_players_age(age)
         self._record_changes(changes)
-        self._log(f"已将 {len(changes)} 名球员的年龄设置为 18 岁")
+        self._log(f"已将 {len(changes)} 名球员的年龄设置为 {age} 岁")
+        return {
+            "applied": len(changes),
+            "players_updated": len(changes),
+            "age": age,
+            "pending_changes": len(self.changes),
+        }
+
+    def quick_birthdate_status(self):
+        service = QuickFeatureService(self.sav)
+        return {
+            **service.preview_original_birthdays(),
+            **service.birthdate_report(),
+        }
+
+    def quick_restore_birthdays(self):
+        changes = QuickFeatureService(self.sav).restore_original_birthdays()
+        self._record_changes(changes)
+        self._log(f"已从生日快照恢复 {len(changes)} 名球员的原始生日")
         return {
             "applied": len(changes),
             "players_updated": len(changes),
             "pending_changes": len(self.changes),
         }
 
-    def quick_add_legends(self):
-        service = LegendService(self.sav)
+    def quick_peak_preview(self, body=None):
+        body = body or {}
+        service = PeakRestoreService(self.sav)
+        return service.preview(
+            min_peak=int(body.get("min_peak", 85)),
+            min_age=int(body.get("min_age", 30)),
+            include_clubless=as_bool(body.get("include_clubless"), True),
+            skip_same_name=as_bool(body.get("skip_same_name"), True),
+            include_done=as_bool(body.get("include_done") or body.get("scope_all"), False)
+            or str(body.get("scope", "")).lower() == "all",
+        )
+
+    def quick_restore_peak(self, body=None):
+        body = body or {}
+        service = PeakRestoreService(self.sav)
+        changes, result = service.apply(
+            min_peak=int(body.get("min_peak", 85)),
+            min_age=int(body.get("min_age", 30)),
+            include_clubless=as_bool(body.get("include_clubless"), True),
+            only_raise=as_bool(body.get("only_raise"), True),
+            skip_same_name=as_bool(body.get("skip_same_name"), True),
+        )
+        if len(changes):
+            self._record_changes(changes)
+        self._log(
+            f"已恢复 {result['restored_count']} 名现役老将的 FIFA19 巅峰"
+            f"（{result['field_count']} 项属性）"
+        )
+        return {
+            "applied": len(changes),
+            "pending_changes": len(self.changes),
+            **result,
+        }
+
+    def quick_add_legends(self, body=None):
+        body = body or {}
+        include_women = bool(body.get("include_women", False))
+        service = LegendService(self.sav, include_women=include_women)
         changes, result = service.add_missing_legends()
         if len(changes):
             self._rebuild_indexes()
             self._record_changes(changes)
-        self._log(f"已添加 {result['added']} 名当前存档缺失的传奇球员")
+        self._log(
+            f"已添加 {result['added']} 名当前存档缺失的传奇球员"
+            f"（男足，含补充姓名 {result.get('names_added', 0)} 条）"
+        )
         return {
             "added": result["added"],
             "legends": result["legends"],
+            "names_added": result.get("names_added", 0),
+            "women_skipped": result.get("women_skipped", 0),
+            "include_women": include_women,
             "applied": len(changes),
             "pending_changes": len(self.changes),
         }
@@ -550,8 +668,9 @@ def create_app(state=None):
 
     @app.route("/api/quick/legends")
     def api_quick_legends():
+        body = request.args.to_dict()
         with state.lock:
-            return jsonify(state.quick_legend_preview())
+            return jsonify(state.quick_legend_preview(body))
 
     @app.route("/api/quick/age18", methods=["POST"])
     def api_quick_age18():
@@ -559,7 +678,37 @@ def create_app(state=None):
         if denied:
             return denied
         with state.lock:
-            return jsonify(state.quick_set_age18())
+            age = (request.get_json() or {}).get("age", 18)
+            try:
+                age = int(age)
+            except (TypeError, ValueError):
+                age = 18
+            return jsonify(state.quick_set_age18(age))
+
+    @app.route("/api/quick/birthdates")
+    def api_quick_birthdates():
+        with state.lock:
+            return jsonify(state.quick_birthdate_status())
+
+    @app.route("/api/quick/restore-birthdays", methods=["POST"])
+    def api_quick_restore_birthdays():
+        denied = require_token()
+        if denied:
+            return denied
+        with state.lock:
+            return jsonify(state.quick_restore_birthdays())
+
+    @app.route("/api/quick/peak", methods=["GET", "POST"])
+    def api_quick_peak():
+        body = request.get_json(silent=True) or request.args.to_dict() or {}
+        if request.method == "POST":
+            denied = require_token()
+            if denied:
+                return denied
+            with state.lock:
+                return jsonify(state.quick_restore_peak(body))
+        with state.lock:
+            return jsonify(state.quick_peak_preview(body))
 
     @app.route("/api/quick/add-legends", methods=["POST"])
     def api_quick_add_legends():
@@ -567,7 +716,7 @@ def create_app(state=None):
         if denied:
             return denied
         with state.lock:
-            return jsonify(state.quick_add_legends())
+            return jsonify(state.quick_add_legends(request.get_json(silent=True) or {}))
 
     @app.route("/api/save", methods=["POST"])
     def api_save():
@@ -585,13 +734,28 @@ def create_app(state=None):
         with state.lock:
             return jsonify(state.reset())
 
+    @app.route("/api/pick-save", methods=["POST"])
+    def api_pick_save():
+        denied = require_token()
+        if denied:
+            return denied
+        # 这里刻意不加 state.lock：系统对话框会一直阻塞到用户选择为止。
+        try:
+            return jsonify(state.pick_save_path())
+        except Exception as exc:
+            return jsonify({"error": str(exc), "cancelled": False})
+
     @app.route("/api/open", methods=["POST"])
     def api_open():
         denied = require_token()
         if denied:
             return denied
+        body = request.get_json() or {}
         with state.lock:
-            state.load((request.get_json() or {}).get("path", ""))
+            if body.get("filename"):
+                state.load_by_filename(body["filename"])
+            else:
+                state.load(body.get("path", ""))
             return jsonify(state.summary())
 
     app.editor_state = state

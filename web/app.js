@@ -22,6 +22,9 @@ const app = {
 const MIN_TRANSFER_ROSTER_SIZE = 16;
 const MAX_TRANSFER_ROSTER_SIZE = 42;
 
+// 国家队选拔默认男足，可用“男足/女足”按钮切换
+let nationalGender = 0;
+
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
@@ -60,7 +63,7 @@ function switchView(viewName) {
   if (viewName === "national" && nationalDraft.team && !nationalDraft.dirty) {
     loadNational(nationalDraft.team.teamid);
   }
-  if (viewName === "quick") loadQuickLegends();
+  if (viewName === "quick") loadQuickPanel();
 }
 
 async function refreshState() {
@@ -80,12 +83,46 @@ function fillMeta() {
   const position = $("#positionFilter");
   app.meta.positions.forEach(item => position.add(new Option(item.label, item.value)));
   fillTransferTeams();
-  const national = $("#nationalTeam");
-  national.replaceChildren(new Option("请选择国家队", ""));
-  (app.meta.national_teams || []).forEach(team => national.add(new Option(team.label, team.teamid)));
+  fillNationalTeams();
   const nationalPosition = $("#nationalPosition");
   nationalPosition.replaceChildren(new Option("全部位置", ""));
   app.meta.positions.forEach(item => nationalPosition.add(new Option(item.label, item.label)));
+}
+
+function nationalTeamsOfGender(gender) {
+  return (app.meta?.national_teams || []).filter(team => (team.gender ?? 0) === gender);
+}
+
+function updateGenderToggle() {
+  $$("#nationalGenderToggle .gender-option").forEach(button => {
+    button.classList.toggle("active", Number(button.dataset.gender) === nationalGender);
+  });
+}
+
+function fillNationalTeams() {
+  const select = $("#nationalTeam");
+  if (!select) return;
+  const previous = select.value;
+  const teams = nationalTeamsOfGender(nationalGender);
+  select.replaceChildren(new Option(nationalGender === 1 ? "请选择女足国家队" : "请选择国家队", ""));
+  teams.forEach(team => select.add(new Option(team.label, team.teamid)));
+  if (previous && teams.some(team => String(team.teamid) === previous)) {
+    select.value = previous;
+  } else if (previous) {
+    select.value = "";
+  }
+  updateGenderToggle();
+}
+
+function setNationalGender(gender) {
+  if (gender === nationalGender) return;
+  if (nationalDraft.dirty && !confirm("切换男足/女足会放弃当前选拔草稿，继续吗？")) {
+    updateGenderToggle();
+    return;
+  }
+  nationalGender = gender;
+  clearNational();
+  fillNationalTeams();
 }
 
 function fillTransferTeams() {
@@ -978,6 +1015,10 @@ async function applyNumbers(teamId, root = $("#teamDetail")) {
   } catch (error) { toast(error.message, true); }
 }
 
+async function loadQuickPanel() {
+  await Promise.all([loadQuickLegends(), loadQuickBirthdates(), loadQuickPeak()]);
+}
+
 async function loadQuickLegends() {
   const summary = $("#legendSummary");
   const preview = $("#legendPreview");
@@ -985,9 +1026,12 @@ async function loadQuickLegends() {
   if (!summary || !preview || !button) return;
   try {
     const data = await api("/api/quick/legends");
+    const skipped = data.women_skipped_count
+      ? `（已排除 ${data.women_skipped_count} 名女足传奇）`
+      : "";
     summary.textContent = data.missing_count
-      ? `当前有 ${data.missing_count} 名传奇球员不在存档（共识别 ${data.available_count} 名传奇球员）。`
-      : "当前存档已经包含清单中的全部传奇球员。";
+      ? `当前有 ${data.missing_count} 名男足传奇不在存档（共识别 ${data.available_count} 名）${skipped}。`
+      : `当前存档已经包含全部男足传奇球员${skipped}。`;
     const names = (data.missing || []).slice(0, 16).map(item => item.name);
     preview.textContent = names.length
       ? `${names.join("、")}${data.missing_count > names.length ? " 等" : ""}`
@@ -1011,6 +1055,7 @@ async function applyQuickAge18() {
       ? `已暂存 ${result.players_updated.toLocaleString()} 名球员的年龄修改。`
       : "所有球员已经是 18 岁，无需修改。";
     await refreshState();
+    await loadQuickBirthdates();
     toast(result.players_updated
       ? `已将 ${result.players_updated.toLocaleString()} 名球员设置为 18 岁，请保存为新存档`
       : "所有球员已经是 18 岁");
@@ -1028,13 +1073,220 @@ async function addQuickLegends() {
   try {
     const result = await api("/api/quick/add-legends", { method: "POST", body: "{}" });
     toast(result.added
-      ? `已暂存 ${result.added} 名传奇球员，请保存为新存档`
-      : "没有需要添加的传奇球员");
+      ? `已暂存 ${result.added} 名男足传奇球员，请保存为新存档`
+      : (result.women_skipped
+        ? `没有需要添加的男足传奇（已排除 ${result.women_skipped} 名女足）`
+        : "没有需要添加的传奇球员"));
     await refreshState();
-    await Promise.all([loadQuickLegends(), searchPlayers(), loadTransferRosters()]);
+    await Promise.all([loadQuickPanel(), searchPlayers(), loadTransferRosters()]);
   } catch (error) {
     toast(error.message, true);
-    await loadQuickLegends();
+    await loadQuickPanel();
+  }
+}
+
+async function loadQuickBirthdates() {
+  const summary = $("#birthdateSummary");
+  const button = $("#quickRestoreBirthdays");
+  if (!summary || !button) return;
+  try {
+    const data = await api("/api/quick/birthdates");
+    if (data.available) {
+      summary.textContent = data.restore_count
+        ? `快照里有 ${data.saved_players.toLocaleString()} 名球员，其中 ${data.restore_count.toLocaleString()} 人可以被还原。`
+        : "所有球员的生日都已经和快照一致。";
+      button.disabled = !data.restore_count;
+    } else {
+      summary.textContent = data.message || "还没有生日快照。";
+      button.disabled = true;
+    }
+    if (data.invalid_count) {
+      summary.textContent += ` 另有 ${data.invalid_count} 名球员生日越界（游戏会隐藏他们）。`;
+    }
+  } catch (error) {
+    summary.textContent = error.message;
+    button.disabled = true;
+  }
+}
+
+async function restoreQuickBirthdays() {
+  const button = $("#quickRestoreBirthdays");
+  const status = $("#birthdateStatus");
+  button.disabled = true;
+  status.textContent = "正在还原原始生日…";
+  try {
+    const result = await api("/api/quick/restore-birthdays", { method: "POST", body: "{}" });
+    status.textContent = result.players_updated
+      ? `已暂存 ${result.players_updated.toLocaleString()} 名球员的生日还原。`
+      : "所有球员的生日已经是原始值。";
+    await refreshState();
+    await loadQuickBirthdates();
+    toast(result.players_updated
+      ? `已还原 ${result.players_updated.toLocaleString()} 名球员的原始生日，请保存为新存档`
+      : "生日已经是原始值");
+  } catch (error) {
+    status.textContent = error.message;
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function renderListDialog({ eyebrow, title, summary, columns, rows }) {
+  const dialog = $("#listDialog");
+  if (!dialog) return;
+  $("#listDialogEyebrow").textContent = eyebrow;
+  $("#listDialogTitle").textContent = title;
+  $("#listDialogSummary").textContent = summary;
+  $("#listDialogHead").innerHTML = columns
+    .map(column => `<th${column.align === "right" ? ' class="list-num"' : ""}>${escapeHtml(column.label)}</th>`)
+    .join("");
+  $("#listDialogBody").innerHTML = rows.length
+    ? rows.map(cells => `<tr>${cells.join("")}</tr>`).join("")
+    : `<tr><td class="list-empty" colspan="${columns.length}">没有记录</td></tr>`;
+  if (!dialog.open) dialog.showModal();
+}
+
+function openListDialogLoading(eyebrow, title) {
+  renderListDialog({ eyebrow, title, summary: "正在读取名单…", columns: [{ label: "名单" }], rows: [] });
+}
+
+async function openLegendList() {
+  openListDialogLoading("LEGEND PLAYERS", "传奇球员名单（男足）");
+  try {
+    const data = await api("/api/quick/legends?scope=all");
+    if (!Array.isArray(data.available)) {
+      throw new Error("后端没有返回完整名单：编辑器改了代码后需要重启一次（关闭窗口重新运行 start_editor.bat）。");
+    }
+    const rows = (data.available || []).map(item => [
+      `<td class="list-id">${item.playerid}</td>`,
+      `<td><strong>${escapeHtml(item.name)}</strong></td>`,
+      `<td>${item.missing
+        ? '<span class="list-tag add">将添加</span>'
+        : '<span class="list-tag own">已有</span>'}</td>`,
+      `<td class="list-num">${item.overallrating}</td>`,
+      `<td>${escapeHtml(item.birthdate_source)}</td>`,
+      `<td>${item.birthdate_fixed ? "真实生日" : "源数据生日"}</td>`,
+      `<td>${item.origin === "extra" ? "额外补充" : "官方清单"}</td>`,
+    ]);
+    renderListDialog({
+      eyebrow: "LEGEND PLAYERS",
+      title: "传奇球员名单（男足）",
+      summary: `共识别 ${data.available_count} 名男足传奇：当前存档已有 ${data.present_count} 名，待添加 ${data.missing_count} 名；`
+        + `另有 ${data.women_skipped_count} 名女足 ICON/英雄按设置跳过。`,
+      columns: [
+        { label: "ID" }, { label: "姓名" }, { label: "状态" }, { label: "OVR", align: "right" },
+        { label: "生日" }, { label: "生日来源" }, { label: "清单来源" },
+      ],
+      rows,
+    });
+  } catch (error) {
+    renderListDialog({
+      eyebrow: "LEGEND PLAYERS",
+      title: "传奇球员名单（男足）",
+      summary: error.message,
+      columns: [{ label: "名单" }],
+      rows: [],
+    });
+  }
+}
+
+async function openPeakList() {
+  openListDialogLoading("VETERAN PEAK", "现役老将名单（FIFA19 巅峰）");
+  try {
+    const data = await api("/api/quick/peak?include_done=1");
+    if (typeof data.roster_count !== "number" || !data.roster_count) {
+      throw new Error("后端没有返回完整名单：编辑器改了代码后需要重启一次（关闭窗口重新运行 start_editor.bat）。");
+    }
+    const rows = (data.candidates || []).map(item => [
+      `<td class="list-id">${item.playerid}</td>`,
+      `<td><strong>${escapeHtml(item.name)}</strong></td>`,
+      `<td class="list-num">${item.age}</td>`,
+      `<td class="list-num">${item.overallrating}</td>`,
+      `<td class="list-num">${item.peak}</td>`,
+      `<td class="list-num">${item.gain ? `+${item.gain}` : "—"}</td>`,
+      `<td class="list-num">${item.raiseable}</td>`,
+      `<td>${item.done
+        ? '<span class="list-tag done">已达标</span>'
+        : '<span class="list-tag todo">待恢复</span>'}</td>`,
+      `<td>${item.gk ? "门将" : "外场"}</td>`,
+      `<td>${escapeHtml(item.club || "无俱乐部")}</td>`,
+    ]);
+    const done = data.roster_count - data.count;
+    renderListDialog({
+      eyebrow: "VETERAN PEAK",
+      title: "现役老将名单（FIFA19 巅峰）",
+      summary: `共 ${data.roster_count} 名（年龄 ≥ ${data.min_age}、FIFA19 巅峰 OVR ≥ ${data.min_peak}）：`
+        + `待恢复 ${data.count} 名，已达标 ${done} 名；门将 ${data.gk_count} 名，无俱乐部 ${data.clubless_count} 名。`,
+      columns: [
+        { label: "ID" }, { label: "姓名" }, { label: "年龄", align: "right" },
+        { label: "现在", align: "right" }, { label: "巅峰", align: "right" },
+        { label: "OVR提升", align: "right" }, { label: "需补项数", align: "right" },
+        { label: "状态" }, { label: "位置" }, { label: "俱乐部" },
+      ],
+      rows,
+    });
+  } catch (error) {
+    renderListDialog({
+      eyebrow: "VETERAN PEAK",
+      title: "现役老将名单（FIFA19 巅峰）",
+      summary: error.message,
+      columns: [{ label: "名单" }],
+      rows: [],
+    });
+  }
+}
+
+async function loadQuickPeak() {
+  const summary = $("#peakSummary");
+  const preview = $("#peakPreview");
+  const button = $("#quickPeakRestore");
+  if (!summary || !preview || !button) return;
+  try {
+    const data = await api("/api/quick/peak");
+    if (data.count) {
+      const extra = [];
+      if (data.gk_count) extra.push(`${data.gk_count} 名门将`);
+      if (data.clubless_count) extra.push(`${data.clubless_count} 人无俱乐部`);
+      if (data.ovr_unchanged_count) extra.push(`${data.ovr_unchanged_count} 人只需补齐单项属性`);
+      summary.textContent = `可恢复 ${data.count} 名现役老将`
+        + (extra.length ? `（含 ${extra.join("、")}）` : "") + "。";
+    } else {
+      summary.textContent = "当前存档里的现役老将都已经在 FIFA19 巅峰。";
+    }
+    const names = (data.candidates || []).slice(0, 12)
+      .map(item => `${item.name} ${item.overallrating}${item.gain ? `→${item.peak}` : "(峰值)"}·${item.raiseable}项`);
+    preview.textContent = names.length
+      ? `${names.join("、")}${data.count > names.length ? " 等" : ""}`
+      : "无需恢复。";
+    button.disabled = !data.count;
+  } catch (error) {
+    summary.textContent = error.message;
+    preview.textContent = "缺少 FIFA19 巅峰数据。";
+    button.disabled = true;
+  }
+}
+
+async function restoreQuickPeak() {
+  const button = $("#quickPeakRestore");
+  const status = $("#peakStatus");
+  button.disabled = true;
+  status.textContent = "正在恢复现役老将的巅峰数据…";
+  try {
+    const result = await api("/api/quick/peak", { method: "POST", body: JSON.stringify({ only_raise: true }) });
+    status.textContent = result.restored_count
+      ? `已暂存 ${result.restored_count} 名球员 / ${result.field_count.toLocaleString()} 项属性。`
+      : "没有需要恢复的球员。";
+    await refreshState();
+    await Promise.all([loadQuickPeak(), searchPlayers()]);
+    toast(result.restored_count
+      ? `已恢复 ${result.restored_count} 名现役老将的巅峰数据，请保存为新存档`
+      : "没有需要恢复的球员");
+  } catch (error) {
+    status.textContent = error.message;
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -1049,7 +1301,7 @@ async function saveChanges() {
     await refreshState();
     await searchPlayers();
     await searchTeams();
-    await Promise.all([loadTransferRosters(), loadQuickLegends()]);
+    await Promise.all([loadTransferRosters(), loadQuickPanel()]);
   } catch (error) { toast(error.message, true); }
 }
 
@@ -1063,36 +1315,97 @@ async function resetChanges() {
     await refreshState();
     if (app.selectedPlayer) await loadPlayer(app.selectedPlayer);
     if (app.selectedTeam) await loadTeam(app.selectedTeam);
-    await Promise.all([loadTransferRosters(), loadQuickLegends()]);
+    await Promise.all([loadTransferRosters(), loadQuickPanel()]);
   } catch (error) { toast(error.message, true); }
+}
+
+async function applySaveAndRefresh(saveName) {
+  clearNational();
+  $("#openDialog").close();
+  app.selectedPlayer = null;
+  app.selectedTeam = null;
+  app.meta = await api("/api/meta");
+  fillMeta();
+  await refreshState();
+  await searchPlayers();
+  await searchTeams();
+  await Promise.all([loadTransferRosters(), loadQuickPanel()]);
+  toast(saveName ? `已加载 ${saveName}` : "存档已加载");
+}
+
+async function loadSaveFromPath(path) {
+  const state = await api("/api/open", { method: "POST", body: JSON.stringify({ path }) });
+  await applySaveAndRefresh(state.save_name);
+}
+
+function openSaveDialog(message) {
+  const hint = $("#openDialogHint");
+  if (hint) {
+    hint.textContent = message
+      ? `${message}；可用下面的备用方式打开存档。`
+      : "正常情况下点击顶部“打开存档”会直接弹出系统文件选择窗口。这里是备用方式。";
+  }
+  const fileInput = $("#openFileInput");
+  if (fileInput) fileInput.value = "";
+  const pathInput = $("#openPathInput");
+  if (pathInput) pathInput.value = app.state?.save_path || "";
+  $("#openDialog").showModal();
+}
+
+async function openSaveViaPicker() {
+  if (nationalDraft.busy) return toast("国家队操作处理中，请稍后再打开存档");
+  if (nationalDraft.dirty && !confirm("打开存档将放弃国家队选拔草稿，继续吗？")) return;
+  const button = $("#openButton");
+  if (button) button.disabled = true;
+  try {
+    const picked = await api("/api/pick-save", { method: "POST", body: "{}" });
+    if (picked.cancelled) return;
+    if (picked.error || !picked.path) {
+      openSaveDialog(picked.error || "没有拿到所选存档路径");
+      return;
+    }
+    await loadSaveFromPath(picked.path);
+  } catch (error) {
+    openSaveDialog(error.message);
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 async function openSave(event) {
   event.preventDefault();
   if (nationalDraft.busy) return toast("国家队操作处理中，请稍后再打开存档");
-  const path = $("#openPathInput").value.trim();
-  if (!path) return;
+  const file = $("#openFileInput")?.files?.[0];
+  const path = ($("#openPathInput")?.value || "").trim();
+  if (!file && !path) return toast("请先选择或输入一个存档", true);
   if (nationalDraft.dirty && !confirm("打开存档将放弃国家队选拔草稿，继续吗？")) return;
   try {
-    await api("/api/open", { method: "POST", body: JSON.stringify({ path }) });
-    clearNational();
-    $("#openDialog").close();
-    app.selectedPlayer = null;
-    app.selectedTeam = null;
-    app.meta = await api("/api/meta");
-    fillMeta();
-    await refreshState();
-    await searchPlayers();
-    await searchTeams();
-    await Promise.all([loadTransferRosters(), loadQuickLegends()]);
-    toast("存档已加载");
+    const body = file ? { filename: file.name } : { path };
+    const loaded = await api("/api/open", { method: "POST", body: JSON.stringify(body) });
+    await applySaveAndRefresh(loaded.save_name);
   } catch (error) { toast(error.message, true); }
+}
+
+async function openChosenFile() {
+  const file = $("#openFileInput")?.files?.[0];
+  if (!file) return;
+  try {
+    const loaded = await api("/api/open", {
+      method: "POST",
+      body: JSON.stringify({ filename: file.name }),
+    });
+    await applySaveAndRefresh(loaded.save_name);
+  } catch (error) {
+    toast(error.message, true);
+  }
 }
 
 function bindEvents() {
   bindNational();
   $("#quickAge18").addEventListener("click", applyQuickAge18);
+  $("#quickRestoreBirthdays").addEventListener("click", restoreQuickBirthdays);
   $("#quickAddLegends").addEventListener("click", addQuickLegends);
+  $("#quickPeakRestore").addEventListener("click", restoreQuickPeak);
   $$(".tab").forEach(tab => tab.addEventListener("click", () => switchView(tab.dataset.view)));
   ["#playerSearch", "#nationFilter", "#overallFilter"].forEach(selector => $(selector).addEventListener("input", () => debounce("playerTimer", searchPlayers)));
   $("#playerResults").addEventListener("keydown", handlePlayerResultsKeydown);
@@ -1114,12 +1427,17 @@ function bindEvents() {
   $("#transferToRoster").addEventListener("click", handleTransferClick);
   $("#saveButton").addEventListener("click", saveChanges);
   $("#resetButton").addEventListener("click", resetChanges);
-  $("#openButton").addEventListener("click", () => {
-    $("#openPathInput").value = app.state.save_path || "";
-    $("#openDialog").showModal();
-  });
+  $("#openButton").addEventListener("click", openSaveViaPicker);
   $("#openForm").addEventListener("submit", openSave);
   $("#cancelOpen").addEventListener("click", () => $("#openDialog").close());
+  $("#retryPickSave").addEventListener("click", () => {
+    $("#openDialog").close();
+    openSaveViaPicker();
+  });
+  $("#openFileInput").addEventListener("change", openChosenFile);
+  $("#quickLegendList").addEventListener("click", openLegendList);
+  $("#quickPeakList").addEventListener("click", openPeakList);
+  $("#closeListDialog").addEventListener("click", () => $("#listDialog").close());
   document.addEventListener("click", event => {
     if (!event.target.closest?.(".transfer-picker")) closeTransferSuggestions();
   });
@@ -1132,7 +1450,7 @@ async function init() {
     fillMeta();
     bindEvents();
     await refreshState();
-    await Promise.all([searchPlayers(), searchTeams(), loadTransferRosters(), loadQuickLegends()]);
+    await Promise.all([searchPlayers(), searchTeams(), loadTransferRosters(), loadQuickPanel()]);
   } catch (error) { toast(error.message, true); }
 }
 
@@ -1212,7 +1530,108 @@ function updateNationalStatus() {
   $("#nationalApply").disabled = nationalDraft.busy || !nationalDraft.dirty || !!invalid;
   $("#nationalReload").disabled = nationalDraft.busy || !nationalDraft.team;
   $("#nationalAutoNumbers").disabled = nationalDraft.busy || !nationalDraft.team?.editable;
+  $("#nationalAutoBySort").disabled = nationalDraft.busy || !nationalDraft.team?.editable;
   $("#nationalTeam").disabled = nationalDraft.busy;
+}
+
+// FC26 位置 id：0=GK、3=RB/5=CB/7=LB、10=CDM/12=RM/14=CM/16=LM/18=CAM、23=RW/25=ST/27=LW
+const NATIONAL_POSITION_GROUPS = ["GK", "DEF", "MID", "ATT"];
+
+function positionGroupOf(player) {
+  const raw = player?.position;
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    if (raw === 0) return 0;
+    if (raw <= 9) return 1;
+    if (raw <= 22) return 2;
+    return 3;
+  }
+  const label = String(player?.primary_position || "").toUpperCase();
+  if (label === "GK") return 0;
+  if (label.endsWith("M")) return 2;
+  if (label.endsWith("B") || label === "SW") return 1;
+  return 3;
+}
+
+function ratingComparator(a, b) {
+  return (b.overallrating || 0) - (a.overallrating || 0)
+    || String(a.name || "").localeCompare(String(b.name || ""))
+    || (a.playerid || 0) - (b.playerid || 0);
+}
+
+/**
+ * 经典号码表：主力按位置拿固定号码，替补拿剩下的。
+ *   门将 1；后卫 2/3/4/5（右后卫→2、左后卫→3、中卫→4/5）；
+ *   中场 10/8/6（前腰→10、中前卫→8、后腰→6）；前锋 9/7/11（中锋→9、右路→7、左路→11）。
+ * 每个号码优先挑“位置匹配 + 能力最高”的球员，匹配不到就用该组能力最高者。
+ */
+const CLASSIC_NUMBER_SLOTS = [
+  { group: 0, number: 1, hints: ["GK"] },
+  { group: 1, number: 2, hints: ["RB", "RWB"] },
+  { group: 1, number: 3, hints: ["LB", "LWB"] },
+  { group: 1, number: 4, hints: ["CB", "RCB", "LCB"] },
+  { group: 1, number: 5, hints: ["CB", "RCB", "LCB"] },
+  { group: 2, number: 10, hints: ["CAM", "RAM", "LAM", "CM", "RCM", "LCM"] },
+  { group: 2, number: 8, hints: ["CM", "RCM", "LCM", "RM", "LM", "CAM"] },
+  { group: 2, number: 6, hints: ["CDM", "RDM", "LDM", "CM"] },
+  { group: 3, number: 9, hints: ["ST", "LST", "RST", "CF"] },
+  { group: 3, number: 7, hints: ["RW", "RF", "RM"] },
+  { group: 3, number: 11, hints: ["LW", "LF", "LM"] },
+];
+
+function autoNumberByPositionAndRating() {
+  const roster = nationalDraft.roster || [];
+  if (!roster.length) return toast("请先选入球员", true);
+  const takenIds = new Set();
+  const numbers = new Map();
+
+  const pickFor = (slot) => {
+    const pool = roster.filter(player =>
+      !takenIds.has(player.playerid) && positionGroupOf(player) === slot.group);
+    if (!pool.length) return null;
+    const labelled = pool.filter(player =>
+      slot.hints.includes(String(player.primary_position || "").toUpperCase()));
+    return (labelled.length ? labelled : pool).sort(ratingComparator)[0];
+  };
+
+  CLASSIC_NUMBER_SLOTS.forEach(slot => {
+    const player = pickFor(slot);
+    if (!player) return;
+    takenIds.add(player.playerid);
+    numbers.set(player.playerid, slot.number);
+  });
+
+  // 替补：门将 → 后卫 → 中场 → 前锋，组内能力高者在前，拿剩下的号码（升序）
+  const substitutes = roster
+    .filter(player => !takenIds.has(player.playerid))
+    .sort((a, b) => positionGroupOf(a) - positionGroupOf(b) || ratingComparator(a, b));
+  const free = [];
+  for (let number = 1; number <= roster.length; number += 1) {
+    if (![...numbers.values()].includes(number)) free.push(number);
+  }
+  substitutes.forEach(player => numbers.set(player.playerid, free.shift()));
+
+  roster.forEach(player => {
+    const number = numbers.get(player.playerid);
+    if (number !== undefined) player.jerseynumber = number;
+  });
+  nationalDraft.dirty = true;
+  renderNational();
+
+  const starters = CLASSIC_NUMBER_SLOTS
+    .filter(slot => [...numbers.entries()].some(([id, value]) => value === slot.number))
+    .map(slot => slot.number).join("/");
+  toast(`已按经典号码编号 ${roster.length} 人（主力 ${starters}，其余为替补号码）`);
+}
+
+function autoNumberByCurrentSort() {
+  const roster = nationalDraft.roster || [];
+  if (!roster.length) return toast("请先选入球员", true);
+  sortedRoster(roster, nationalDraft.sorts.roster).forEach((player, index) => {
+    player.jerseynumber = index + 1;
+  });
+  nationalDraft.dirty = true;
+  renderNational();
+  toast(`已按当前排序编号 ${roster.length} 人`);
 }
 
 function nationalSortHeader(side, key, label) {
@@ -1257,6 +1676,11 @@ function renderNational() {
 }
 
 function bindNational() {
+  $("#nationalGenderToggle").addEventListener("click", event => {
+    const button = event.target.closest(".gender-option");
+    if (!button) return;
+    setNationalGender(Number(button.dataset.gender));
+  });
   $("#nationalTeam").addEventListener("change", () => {
     const teamId = Number($("#nationalTeam").value);
     if (nationalDraft.dirty && !confirm("切换国家队将放弃当前选拔草稿，继续吗？")) {
@@ -1302,13 +1726,8 @@ function bindNational() {
     }
     renderNational();
   });
-  $("#nationalAutoNumbers").addEventListener("click", () => {
-    sortedRoster(nationalDraft.roster, nationalDraft.sorts.roster).forEach((player, index) => {
-      player.jerseynumber = index + 1;
-    });
-    nationalDraft.dirty = true;
-    renderNational();
-  });
+  $("#nationalAutoNumbers").addEventListener("click", autoNumberByPositionAndRating);
+  $("#nationalAutoBySort").addEventListener("click", autoNumberByCurrentSort);
   $("#nationalReload").addEventListener("click", () => {
     if (!nationalDraft.dirty || confirm("确定放弃当前国家队草稿？")) {
       loadNational(nationalDraft.team.teamid);

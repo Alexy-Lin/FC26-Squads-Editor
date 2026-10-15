@@ -30,24 +30,59 @@ class RosterService:
     def links(self, player_id: int):
         return [r for r in self.table.records if r.get("playerid") == player_id]
 
+    def team_genders(self) -> Dict[int, int]:
+        """teamid → 0 (men) / 1 (women), decided by the roster's majority gender.
+
+        FC26 mixes men's and women's teams in one save (and men's/women's national
+        teams share the same nation id), so the roster is the only reliable source.
+        """
+        players = self.sav.db.get_table("CZUM")
+        genders = {}
+        if not players:
+            return genders
+        by_id = {
+            record.get("playerid"): record
+            for record in players.records
+            if record.get("playerid")
+        }
+        counts: Dict[int, list] = {}
+        for record in self.table.records:
+            team_id = record.get("teamid")
+            player_id = record.get("playerid")
+            if not team_id or not player_id:
+                continue
+            gender = 1 if (by_id.get(player_id, {}).get("gender") == 1) else 0
+            bucket = counts.setdefault(team_id, [0, 0])
+            bucket[gender] += 1
+        for team_id, (men, women) in counts.items():
+            genders[team_id] = 1 if women > men else 0
+        return genders
+
     def team_options(self, national: bool):
         teams = self.sav.db.get_table("lyxL")
         result = []
         if not teams:
             return result
+        genders = self.team_genders()
         for record in teams.records:
             team_id = record.get("teamid")
-            if not team_id or self.resolver.is_national_team(team_id) != national:
+            if not team_id or self.resolver.is_non_player_team(team_id):
+                continue   # 5v5/Rush、经理池不是可转会球队
+            if self.resolver.is_national_team(team_id) != national:
                 continue
             name_en, name_cn = self.resolver.get_team_names(team_id)
             if team_id == self.FREE_AGENT_TEAM_ID:
                 name_en, name_cn = "Free Agents", "自由球员"
-            label = " / ".join(dict.fromkeys(name for name in (name_cn, name_en) if name)) or str(team_id)
+            gender = genders.get(team_id, 0)
+            name = " / ".join(dict.fromkeys(item for item in (name_cn, name_en) if item)) or str(team_id)
+            if gender == 1:
+                name = f"{name} · 女足"
             result.append({
                 "teamid": team_id,
                 "name_en": name_en,
                 "name_cn": name_cn,
-                "label": f"{label} (ID={team_id})",
+                "gender": gender,
+                "label": f"{name} (ID={team_id})",
             })
         return sorted(result, key=lambda item: item["label"].casefold())
 

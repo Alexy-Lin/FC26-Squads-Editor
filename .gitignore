@@ -4,6 +4,8 @@ __pycache__/
 .fc26-editor.json
 .fc26-save-*.tmp
 testdata/Squads*
+data/birthdate_snapshots/
+data/fifa19_peak.csv
 Squads*
 *.sav
 *.xlsx

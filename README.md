@@ -15,7 +15,9 @@ EA SPORTS FC 26 `Squads` 存档编辑器，提供中文 Web 界面、命令行�
 - 俱乐部、自由球员之间转会 / Transfer players between clubs and free agents
 - 国家队选拔：按国籍筛选候选人，选出 26 人并设置号码 / Select 26-player national squads by nationality and assign shirt numbers
 - 快捷功能：批量设置全部球员为 18 岁 / Quick feature: set all players to age 18
-- 快捷功能：一键添加当前存档缺失的传奇球员 / Quick feature: add missing legends in one click
+- 快捷功能：一键恢复原始生日（自动快照）/ Quick feature: restore original birthdays from an automatic snapshot
+- 快捷功能：一键添加当前存档缺失的男足传奇球员（含 Kempes / Rivellino，使用真实生日，自动跳过女足）/ Quick feature: add missing **male** legends, including Kempes and Rivellino, with real birthdates
+- 快捷功能：一键现役传奇恢复巅峰（41 项属性含门将，FIFA19 两套数据取高，只升不降）/ Quick feature: restore active veterans to their FIFA19 peak (41 attributes including goalkeeping, best of two FIFA19 sources, raise-only)
 - 导出球员表或完整存档数据到 Excel / Export player tables or complete save data to Excel
 
 ## 安装 / Installation
@@ -56,9 +58,10 @@ python web_app.py
 http://127.0.0.1:8765/
 ```
 
-启动时会自动加载 FC26 存档目录中修改时间最新的 `Squads*` 文件。也可以点击“打开存档”并输入存档完整路径。
+启动时会自动加载 FC26 存档目录中修改时间最新的 `Squads*` 文件。点击“打开存档”会直接弹出**系统文件选择窗口**（Windows 资源管理器对话框，默认打开 FC26 存档目录），选好文件立即加载，不需要手填路径；用户取消则不做任何事。
+如果系统窗口无法弹出（例如服务跑在没有桌面的环境），会自动退回到备用弹窗，里面可以：在浏览器文件管理器里选文件（按文件名在 FC26 存档目录里查找）、重试系统窗口、或手动输入完整路径。
 
-At startup, the editor automatically loads the newest `Squads*` file in the FC26 save folder. You can also click “打开存档” and enter a full save path.
+At startup, the editor automatically loads the newest `Squads*` file in the FC26 save folder. Clicking “打开存档” opens the **native Windows file dialog** (starting in the FC26 save folder); the chosen save is loaded immediately and no path has to be typed. Cancelling does nothing. If the native dialog cannot be shown (headless server), a fallback dialog offers: picking a file in the browser's file manager (resolved by name inside the FC26 save folder), retrying the native dialog, or typing a full path.
 
 基本操作 / Basic workflow:
 
@@ -71,23 +74,74 @@ At startup, the editor automatically loads the newest `Squads*` file in the FC26
 
 “国家队选拔”页面可以选择国家队，按姓名、能力和位置筛选同国籍球员，移入或移出候选人并编辑号码。名单必须满足 FC26 的 26 人规则，点击“应用选拔与号码”后，再点击顶部“保存为新存档”。
 
-“快捷功能”页面提供两个一键操作：
+候选名单的过滤规则（针对真实存档踩过的坑）：
 
-1. “设置全部球员为 18 岁”：把当前存档所有球员的年龄统一设置为 18 岁。
-2. “一键添加缺失传奇”：读取项目内置传奇清单，把当前存档中没有的传奇球员以自由球员身份加入。
+- **国家队列表由存档自动识别**：`core/name_resolver.py` 除了原来的固定 id 表，还会用存档自带的 `CxJp`（team→nation）+ 队名等于国家名 + 名单国籍一致来识别国家队。这样 FC26 新增的球队（日本、韩国、摩洛哥、乌克兰、克罗地亚、沙特、伊朗、阿尔及利亚、乌兹别克斯坦、卡塔尔、印尼、伊拉克、约旦、巴拿马、海地、佛得角、加纳、塞内加尔、突尼斯…）以及**女足国家队**（113xxx/115xxx）都能选，而且它们不再被当成"俱乐部"出现在转会页；`那不勒斯`、`阿森纳` 这类 26 人俱乐部不会被误判（名单国籍测试会挡掉）。
+- **按名单性别过滤**：FC26 里男足和女足共用同一个 `nationality` id，只按国籍筛选会把女足球员（例如英格兰的 Alessia Russo / Lucy Bronze / Leah Williamson）塞进男足候选。现在由现有名单的性别决定候选池：英格兰男足(1318) 只给男足，英格兰女足(113002) 只给女足。
+- **排除小场模式与经理池记录**：`Rush Goalkeeper`（只挂在 `5 对 5 球队`）和**经理记录**（例如第二个 `Zinedine Zidane`，id 238399，只挂在 `自由球员经理` 池里 —— 选法国队时会看到两个齐达内，现在只剩 ICON 版 1397）都不会再出现在候补名单里；判据集中在 `NameResolver.is_non_player_team()`（`5 对 5 / 5v5 / Rush / 经理 / manager` 等标记），这些占位球队也从转会页的球队列表里去掉（自由球员池不受影响）。
+- **男足 / 女足切换**：国家队选择框旁边有「男足 / 女足」按钮，**默认男足**；女足队的名字都会带 `· 女足` 标记（例如 `德国 · 女足 (ID=113004)`），所以即使不切换也不会认错。该字段同样出现在转会页的球队列表里（女足俱乐部也会带标记）。
+- **经典号码自动编号**：名单下方有「按位置自动编号（经典号码）」，主力按位置拿固定号码：
 
-两个操作都会先暂存修改，不会覆盖原存档；完成后请点击顶部“保存为新存档”。再次点击“放弃修改”即可撤销尚未保存的操作。
+  | 号码 | 位置 | 挑谁 |
+  |---|---|---|
+  | 1 | 门将 | 能力最高的门将 |
+  | 2 / 3 | 右后卫 / 左后卫 | 该位置能力最高者 |
+  | 4 / 5 | 中卫 | 能力最高的两名中卫 |
+  | 6 | 后腰 CDM | 能力最高者 |
+  | 8 | 中前卫 CM | 能力最高者 |
+  | 10 | 前腰 CAM | 能力最高者 |
+  | 7 / 11 | 右路 / 左路 | 该位置能力最高者 |
+  | 9 | 中锋 ST | 能力最高的中锋 |
+
+  优先按位置匹配（RB→2、LB→3、CB→4/5、CDM→6、CM→8、CAM→10、RW→7、LW→11、ST→9），该位置没人就退化为该组能力最高者；**替补**按 门将 → 后卫 → 中场 → 前锋、组内能力从高到低，从 12 开始拿剩下的号码（满编 26 人时替补门将通常拿 12）。另有「按当前排序编号」沿用按表格排序顺序编号的老方式。
+- 接口会在返回里附带 `gender`、`expected_roster_size` 与 `excluded_placeholders` 便于核对；候选球员带 `position`（FC26 位置 id）与 `overallrating`，自动编号在前端本地完成，不额外发请求。
+- **原位选拔按该队原有人数**：男足 26 人，女足 23 人；编辑器重写的是已有的 `RrqT` 记录，人数保持不变，所以不会因为 23 人名单而拒绝编辑。
+
+The National Team page lets you choose a country, filter eligible players by name, rating, or position, add or remove players, and edit shirt numbers. The roster must contain 26 players for FC26. Apply the selection first, then click “Save as new save”.
+
+Candidate filtering (all are real-save findings):
+
+- **The national-team list is detected from the save**: besides the fixed id table, `core/name_resolver.py` recognises a team as national when the save links it to a nation (`CxJp`), its name equals a nation name and its roster is dominated by that nation. That brings in FC26's newer teams (Japan, Korea, Morocco, Ukraine, Croatia, Saudi Arabia, Iran, Algeria, Uzbekistan, Qatar, Indonesia, Iraq, Jordan, Panama, Haiti, Cape Verde, Ghana, Senegal, Tunisia, ...) and the **women's national teams** (113xxx/115xxx), and removes them from the transfer page's club list. 26-man clubs such as Napoli or Arsenal are not misclassified.
+- **Filtered by roster gender**: men's and women's players share the same `nationality` id in FC26, so a nationality-only filter offered women (England's Alessia Russo / Lucy Bronze / Leah Williamson) for the men's team. The existing roster's gender now decides the pool: England men (1318) offers men, England women (113002) offers women.
+- **Small-sided placeholders excluded**: ``Rush Goalkeeper`` style 5v5/Rush placeholders live only on the `5 对 5 球队` teams and no longer show up as candidates (detected by every club link pointing at a small-sided team).
+- **Men's / women's toggle**: the national-team picker has a “男足 / 女足” (men / women) switch, **men by default**; women's teams always carry a `· 女足` marker in their label (e.g. `德国 · 女足 (ID=113004)`), and the same gender field is exposed for clubs on the transfers page.
+- **In-place selection keeps the team's own size**: 26 for men's teams, 23 for the women's teams; the editor rewrites the existing `RrqT` links, so the count never changes.
+
+“快捷功能”页面提供四个一键操作，其中传奇和现役老将两张卡片各带一个 **“查看名单”** 按钮，点击弹出完整名单弹窗：
+
+| 弹窗 | 内容 |
+|---|---|
+| 传奇球员名单（男足） | 共识别 N 名 / 已有 / 待添加；每行显示 ID、姓名、状态（将添加·已有）、OVR、生日、生日来源、清单来源（官方清单 / 额外补充 Kempes·Rivellino）。数据来自 `GET /api/quick/legends?scope=all`。 |
+| 现役老将名单（FIFA19 巅峰） | 共 N 名（口径：年龄 ≥ 30、FIFA19 巅峰 OVR ≥ 85）；每行显示 ID、姓名、年龄、现在 OVR、巅峰 OVR、OVR 提升、**需补项数**、状态（待恢复·已达标）、位置（门将/外场）、俱乐部。待恢复的排在前面。数据来自 `GET /api/quick/peak?include_done=1`。 |
+
+1. “设置全部球员为 18 岁”：把当前存档所有球员的年龄统一设置为 18 岁。执行前会自动把原始生日写入 `data/birthdate_snapshots/`（每个存档一份 + `latest.json`）。
+2. “一键恢复原始生日”：用上面的生日快照把所有球员（含传奇）还原成真实生日。没有快照时按钮置灰，并提示先执行一次 18 岁或手动重新打开原始存档。
+3. “一键添加缺失传奇”：读取项目内置传奇清单，把当前存档中没有的**男足**传奇以自由球员身份加入，**女足 ICON/英雄会被自动跳过**（按源数据库 `gender` 字段判断，当前清单里 183 男 / 23 女）。包含清单外的 **Kempes（82092）** 和 **Rivellino（191190）**；所有导入球员都写入**真实生日**（来源库里的占位生日 120000/130000 会被游戏隐藏，导致球员在国家队选拔里看不到），需要时补写 `editedplayernames` 姓名。需要连女足一起补时调用 `POST /api/quick/add-legends {"include_women": true}`。
+4. “一键现役传奇恢复巅峰”：把 30 岁以上的现役老将（梅西、C 罗、内马尔、莫德里奇、莱万等）恢复到 FIFA19 巅峰。默认口径：巅峰 OVR ≥ 85、年龄 ≥ 30、包含没有俱乐部的现役球员、**只升不降**，自动排除传奇/ICON 与同名球员。
+   - 比对 **41 项属性**：除总评/潜力外，还有 29 项外场、`aggression`、`defensiveawareness`，以及门将 5 项（`gkdiving`/`gkhandling`/`gkkicking`/`gkpositioning`/`gkreflexes`，只写给门将）。门将属性来自官方 FIFA19 导出，只补门将。
+   - 巅峰参考值取**两套 FIFA19 数据的较高者**：`players.db` 的 `fifa19` 行 + 官方 sofifa FIFA19 导出（`players_19.csv`）。两者会不一致（例如德佩：存档值加速 82，官方值 89），只取存档那一套会漏掉单项。
+   - OVR 已经等于巅峰、但仍有单项属性偏低的球员同样会恢复（德佩就是这种：86 = 巅峰 86，但加速/速度/任意球/侵略性等 7 项偏低）。
+   - 数据由 `tools/export_fifa19_peak.py` 生成到 `data/fifa19_peak.csv`（41 列）。该 CSV 体积较大（约 0.8 MB，5856 行），**不纳入版本库**（见 `.gitignore`）：克隆后请先执行 `python tools/export_fifa19_peak.py`（需要 `players.db` 与官方 `players_19.csv`）生成它，否则点击该功能会提示缺少数据文件。导出工具才需要 `players.db` 与官方 CSV。
+
+四个操作都会先暂存修改，不会覆盖原存档；完成后请点击顶部“保存为新存档”。再次点击“放弃修改”即可撤销尚未保存的操作。
 
 The Teams page supports squad viewing and batch shirt-number editing. The Transfers page lets you select a source and target club, then transfer players individually.
 
 The National Team page lets you choose a country, filter eligible players by name, rating, or position, add or remove players, and edit shirt numbers. The roster must contain 26 players for FC26. Apply the selection first, then click “Save as new save”.
 
-The “Quick Features” page provides two one-click actions:
+The “Quick Features” page provides four one-click actions; the legend card and the veteran card each have a **“查看名单” (View list)** button that opens a modal with the full list:
 
-1. “Set all players to age 18” updates the age of every player in the loaded save.
-2. “Add missing legends” adds legends from the bundled list that are not already in the save, as free agents.
+| Dialog | Contents |
+|---|---|
+| Legend players (male) | recognised / already present / to be added counts, then one row per legend: ID, name, status, OVR, birthdate, birthdate source, list origin (official list / extra: Kempes, Rivellino). `GET /api/quick/legends?scope=all` |
+| Active veterans (FIFA19 peak) | players aged 30+ with a FIFA19 peak of 85+: ID, name, age, current OVR, peak OVR, OVR gain, attributes still to raise, status (to restore / already at peak), position (GK/outfield), club. Pending rows come first. `GET /api/quick/peak?include_done=1` |
 
-Both actions are staged in memory first. Click “Save as new save” when ready; click “Discard changes” to undo anything that has not been saved.
+1. “Set all players to age 18” — also writes an automatic birthdate snapshot to `data/birthdate_snapshots/`.
+2. “Restore original birthdays” — restores every player (legends included) from that snapshot.
+3. “Add missing **male** legends” — women's ICONs/Heroes are skipped automatically (detected through the source `gender` field: 183 male / 23 female in the current list). It includes **Kempes (82092)** and **Rivellino (191190)** even though they are not in the icon list, and imports every legend with its **real birthdate** (the source placeholders 120000/130000 are rejected by the game and hide the player) plus an `editedplayernames` record when needed. Pass `{"include_women": true}` to `POST /api/quick/add-legends` to include the women.
+4. “Restore active veterans to peak” — 41 attributes per player (29 outfield + `aggression` + `defensiveawareness` + the 5 goalkeeper attributes, goalkeeper ones only written to goalkeepers), raise-only, active players aged 30+ with a FIFA19 peak of 85+. The peak reference is the **higher of the two FIFA19 sources** (`players.db`'s `fifa19` rows and the official sofifa FIFA19 export), and players whose OVR already matches the peak but still have low individual attributes are restored as well (Memphis Depay: 86 = peak 86, seven attributes below peak). Legends and same-name players are excluded. The reference table is generated into `data/fifa19_peak.csv` (41 columns) by `tools/export_fifa19_peak.py`. That CSV is fairly large (~0.8 MB, 5,856 rows) and is **not committed** (see `.gitignore`): after cloning, run `python tools/export_fifa19_peak.py` (it needs `players.db` and the official `players_19.csv`); otherwise the feature reports that the data file is missing.
+
+All four actions are staged in memory first. Click “Save as new save” when ready; click “Discard changes” to undo anything that has not been saved.
 
 ## 命令行 / Command line
 
@@ -155,9 +209,9 @@ python main.py --help
 
 ### 找不到存档 / Save not found
 
-在“打开存档”中输入完整路径。FC26 默认存档目录通常是：
+点击“打开存档”后，系统文件选择窗口会默认停在 FC26 存档目录；如果列表是空的，先确认游戏里保存过阵容。FC26 默认存档目录通常是：
 
-Enter the full path in “打开存档”. The default FC26 save folder is usually:
+Clicking “打开存档” opens the system file dialog directly in the FC26 save folder. If it looks empty, make sure the game has saved a squad file. The default FC26 save folder is usually:
 
 ```text
 C:\Users\你的用户名\AppData\Local\EA SPORTS FC 26\settings\

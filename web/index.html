@@ -48,23 +48,53 @@
             <span class="eyebrow">PLAYER AGE</span>
             <h2>批量设置年龄为 18 岁</h2>
           </div>
-          <p>将当前存档中全部球员的年龄统一设置为 18 岁，适合快速创建年轻化存档。</p>
+          <p>将当前存档中全部球员的年龄统一设置为 18 岁，适合快速创建年轻化存档。执行前编辑器会自动记录一份生日快照。</p>
           <div class="quick-card-actions">
             <button id="quickAge18" class="button primary">设置全部球员为 18 岁</button>
             <span id="quickAge18Status" class="quick-status">修改会先暂存，随顶部保存按钮写入新存档。</span>
           </div>
         </article>
         <article class="panel quick-card">
+          <div class="quick-card-icon">↺</div>
+          <div>
+            <span class="eyebrow">BIRTHDATE RESTORE</span>
+            <h2>一键恢复原始生日</h2>
+          </div>
+          <p>用「全员 18 岁」执行前记录的生日快照，把所有球员的生日还原成原来的真实生日（含传奇球员的真实出生日期）。</p>
+          <p id="birthdateSummary" class="quick-status">正在检查生日快照…</p>
+          <div class="quick-card-actions">
+            <button id="quickRestoreBirthdays" class="button" disabled>恢复原始生日</button>
+            <span id="birthdateStatus" class="quick-status">没有快照时可以手动重新打开原始存档。</span>
+          </div>
+        </article>
+        <article class="panel quick-card">
           <div class="quick-card-icon trophy">★</div>
           <div>
             <span class="eyebrow">LEGEND PLAYERS</span>
-            <h2>添加缺失传奇球员</h2>
+            <h2>添加缺失传奇球员（男足）</h2>
           </div>
           <p id="legendSummary">正在检查当前存档中的缺失传奇球员…</p>
           <div id="legendPreview" class="legend-preview"></div>
           <div class="quick-card-actions">
             <button id="quickAddLegends" class="button primary" disabled>一键添加缺失传奇</button>
-            <span class="quick-status">传奇球员会以自由球员身份加入，不会覆盖存档中已有球员。</span>
+            <button id="quickLegendList" class="button ghost" type="button">查看名单</button>
+            <span class="quick-status">只添加男足传奇（女足 ICON/英雄会被跳过），以自由球员身份加入，包含 Kempes 与 Rivellino；导入时使用真实生日，否则游戏会隐藏该球员。</span>
+          </div>
+        </article>
+        <article class="panel quick-card">
+          <div class="quick-card-icon trophy">↑</div>
+          <div>
+            <span class="eyebrow">VETERAN PEAK</span>
+            <h2>现役传奇恢复巅峰</h2>
+          </div>
+          <p>把 30 岁以上的现役老将（梅西、C 罗、内马尔、莫德里奇、莱万等）恢复到 FIFA19 巅峰数据，<strong>只升不降</strong>，传奇与 ICON 不在其中。</p>
+          <p>共比对 <strong>41 项属性</strong>（含门将 5 项），参考值取「FIFA19 存档数据」与「官方 FIFA19（sofifa）数值」中的较高者；OVR 已经达标、但仍有单项属性偏低的球员（例如德佩）同样会被补齐。</p>
+          <p id="peakSummary">正在统计可恢复的球员…</p>
+          <div id="peakPreview" class="legend-preview"></div>
+          <div class="quick-card-actions">
+            <button id="quickPeakRestore" class="button primary" disabled>一键恢复巅峰</button>
+            <button id="quickPeakList" class="button ghost" type="button">查看名单</button>
+            <span id="peakStatus" class="quick-status">默认口径：FIFA19 巅峰 ≥ 85、年龄 ≥ 30、含无俱乐部现役球员、只升不降。</span>
           </div>
         </article>
       </div>
@@ -75,6 +105,10 @@
           <div class="national-card-heading">
             <h2>入选名单 <span id="nationalCount" class="count">0 / 26 人</span></h2>
             <div class="field national-team-picker">
+              <div class="gender-toggle" id="nationalGenderToggle" role="group" aria-label="男足 / 女足">
+                <button type="button" class="gender-option active" data-gender="0">男足</button>
+                <button type="button" class="gender-option" data-gender="1">女足</button>
+              </div>
               <select id="nationalTeam" aria-label="国家队"><option value="">请选择国家队</option></select>
             </div>
           </div>
@@ -82,7 +116,8 @@
           <div id="nationalRoster" class="national-list"></div>
           <div class="sticky-actions">
             <button id="nationalReload" class="button ghost" disabled>重置草稿</button>
-            <button id="nationalAutoNumbers" class="button ghost" disabled>按当前排序编号 1–26</button>
+            <button id="nationalAutoNumbers" class="button secondary" disabled>按位置自动编号（经典号码）</button>
+            <button id="nationalAutoBySort" class="button ghost" disabled>按当前排序编号</button>
             <button id="nationalApply" class="button primary" disabled>应用选拔与号码</button>
           </div>
         </article>
@@ -96,7 +131,7 @@
             <select id="nationalPosition" aria-label="候选位置"><option value="">全部位置</option></select>
           </div>
           <div id="nationalCandidates" class="national-list"><p>请选择国家队</p></div>
-          <p class="national-note">先移出再选入，名单须满 26 人；号码 1–99 且不重复。排序仅改变显示，不改首发或阵型。</p>
+          <p class="national-note">先移出再选入，名单须满该队原有人数（男足 26 人、女足 23 人）；号码 1–99 且不重复。号码可用「按位置自动编号（经典号码）」一键分配主力：<strong>1</strong> 门将、<strong>2/3</strong> 右/左后卫、<strong>4/5</strong> 中卫、<strong>6</strong> 后腰、<strong>8</strong> 中前卫、<strong>10</strong> 前腰、<strong>7</strong> 右路、<strong>9</strong> 中锋、<strong>11</strong> 左路（每组挑位置匹配且能力最高的球员），替补从 12 起拿剩下的号码；也可以「按当前排序编号」。排序仅改变显示，不改首发或阵型。</p>
         </article>
       </div>
     </section>
@@ -265,17 +300,43 @@
       <div>
         <span class="eyebrow">OPEN SQUADS FILE</span>
         <h2>打开本地存档</h2>
-        <p>输入 EA SPORTS FC 26 的 Squads 文件完整路径。</p>
+        <p id="openDialogHint">正常情况下点击顶部“打开存档”会直接弹出系统文件选择窗口。这里是备用方式：系统窗口不可用时，可以在文件管理器中选文件，或手动输入路径。</p>
       </div>
       <label class="field wide">
-        <span>存档路径</span>
-        <input id="openPathInput" type="text" autocomplete="off" required>
+        <span>在文件管理器中选择（按文件名在 FC26 存档目录里查找）</span>
+        <input id="openFileInput" type="file">
+      </label>
+      <label class="field wide">
+        <span>或手动输入存档完整路径</span>
+        <input id="openPathInput" type="text" autocomplete="off">
       </label>
       <div class="dialog-actions">
         <button class="button ghost" id="cancelOpen" type="button">取消</button>
+        <button class="button secondary" id="retryPickSave" type="button">重试系统文件选择</button>
         <button class="button primary" id="confirmOpen" value="default">打开</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="listDialog" class="list-dialog">
+    <div class="dialog-card list-card">
+      <div>
+        <span class="eyebrow" id="listDialogEyebrow">LIST</span>
+        <h2 id="listDialogTitle">名单</h2>
+        <p id="listDialogSummary"></p>
+      </div>
+      <div class="list-dialog-wrap">
+        <table class="roster-table list-table">
+          <thead>
+            <tr id="listDialogHead"></tr>
+          </thead>
+          <tbody id="listDialogBody"></tbody>
+        </table>
+      </div>
+      <div class="dialog-actions">
+        <button class="button ghost" id="closeListDialog" type="button">关闭</button>
+      </div>
+    </div>
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>

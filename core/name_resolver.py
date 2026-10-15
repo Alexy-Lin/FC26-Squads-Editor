@@ -292,12 +292,135 @@ class NameResolver:
         return self._team_names_en.get(teamid, ""), self._team_names_cn.get(teamid, "")
 
     def is_national_team(self, teamid: int) -> bool:
-        return teamid in self._NATIONAL_TEAM_IDS
+        return teamid in self._NATIONAL_TEAM_IDS or teamid in self.detected_national_teams()
+
+    #: Teams that hold placeholder records instead of real players: the 5v5/Rush
+    #: squads (``Rush Goalkeeper``) and the free-agent manager pool (a second
+    #: Zidane record, which must never be selectable as a player).
+    NON_PLAYER_TEAM_MARKERS = (
+        "5 对 5", "5对5", "5v5", "5 vs 5", "rush", "small sided",
+        "经理", "manager",
+    )
+
+    def is_non_player_team(self, teamid: int) -> bool:
+        """True for placeholder/manager pools (5v5/Rush teams, manager pool)."""
+        if not teamid:
+            return False
+        names = (
+            self._team_names_en.get(teamid),
+            self._team_names_cn.get(teamid),
+            self.get_team_name(teamid),
+        )
+        return any(
+            marker in str(name or "").casefold()
+            for name in names
+            for marker in self.NON_PLAYER_TEAM_MARKERS
+        )
+
+    # ------------------------------------------------------------------
+    # Save-driven national-team detection
+    # ------------------------------------------------------------------
+    def detected_national_teams(self) -> set:
+        """National teams the save itself identifies, on top of the fixed list.
+
+        FC26 added national teams (Japan, Morocco, Uzbekistan, ...) whose ids are
+        not in the FIFA19-era :data:`_NATIONAL_TEAM_IDS`, so they used to show up
+        as *clubs* in the transfer page and were missing from the national-team
+        picker.  The save tells us which teams they are:
+
+        * the team has a ``CxJp`` (team → nation) link, and
+        * its name equals a known nation name (Chinese or English), and
+        * its roster is dominated by players of that same nation id.
+
+        Club teams named after a country (vanishingly rare) fail the third test,
+        so real clubs stay clubs.  The result is cached on the DB object so the
+        several resolvers built for one save share one computation.
+        """
+        cached = getattr(self._db, "_detected_national_teams", None)
+        if cached is not None:
+            return cached
+        detected = self._detect_national_teams()
+        try:
+            self._db._detected_national_teams = detected
+        except Exception:  # pragma: no cover - read-only DB objects
+            pass
+        return detected
+
+    def _nation_name_keys(self) -> set:
+        keys = set()
+        for name in self._nations.values():
+            if name:
+                keys.add(self._normalise_name(name))
+        try:
+            from .mappings import NATIONS_CN
+        except ImportError:  # pragma: no cover
+            from core.mappings import NATIONS_CN
+        for name in NATIONS_CN.values():
+            if name:
+                keys.add(self._normalise_name(name))
+        keys.discard("")
+        return keys
+
+    @staticmethod
+    def _normalise_name(value) -> str:
+        return "".join(str(value or "").split()).casefold()
+
+    def _detect_national_teams(self) -> set:
+        teams = self._db.get_table("lyxL")
+        if not teams:
+            return set()
+        nation_by_team = {}
+        links_table = self._db.get_table("CxJp")
+        if links_table:
+            for record in links_table.records:
+                team_id = record.get("teamid")
+                nation_id = record.get("nationid")
+                if team_id and nation_id:
+                    nation_by_team[team_id] = nation_id
+        if not nation_by_team:
+            return set()
+        rosters = {}
+        rqt = self._db.get_table("RrqT")
+        if rqt:
+            for record in rqt.records:
+                team_id = record.get("teamid")
+                player_id = record.get("playerid")
+                if team_id and player_id:
+                    rosters.setdefault(team_id, []).append(player_id)
+        nation_names = self._nation_name_keys()
+        detected = set()
+        for record in teams.records:
+            team_id = record.get("teamid")
+            if not team_id or team_id in self._NATIONAL_TEAM_IDS:
+                continue
+            nation_id = nation_by_team.get(team_id)
+            if not nation_id:
+                continue
+            name = self._normalise_name(record.get("teamname"))
+            if not name or name not in nation_names:
+                continue
+            roster = rosters.get(team_id) or []
+            if not roster:
+                continue
+            counts = {}
+            for player_id in roster:
+                player = self._players_by_id.get(player_id) or {}
+                nationality = player.get("nationality")
+                counts[nationality] = counts.get(nationality, 0) + 1
+            top_nation, top_count = max(counts.items(), key=lambda item: item[1])
+            if top_nation == nation_id and top_count >= max(2, len(roster) * 0.6):
+                detected.add(team_id)
+        return detected
 
     def refresh_player_teams(self, table=None):
         """Rebuild team indexes after an in-memory RrqT edit."""
         self._player_team.clear()
         self._player_jersey.clear()
+        # rosters changed → the national-team detection cache is stale
+        try:
+            self._db._detected_national_teams = None
+        except Exception:  # pragma: no cover
+            pass
         table = table or self._db.get_table("RrqT")
         if table:
             for r in table.records:
